@@ -157,16 +157,15 @@ class game_space:
         objective = self.obj_start + (random.choice(range(len(self.objectives)))*10)
         state_size = self.get_state_size()
         action_size = self.action_size
-        found = False
-        gi = 0
-        genome = None
-        reward = None
-        while found == False:
-            gi = random.choice(range(len(self.genome_pool)))
-            item = self.genome_pool[gi]
-            genome, reward = item
-            if reward is None:
-                found = True
+
+        selectable = []
+        for i, item in enumerate(self.genome_pool):
+            g, f = item
+            if f is None:
+                selectable.append(i)
+        gi = random.choice(selectable)
+        item = self.genome_pool[gi]
+        genome, fitness = item
 
         new_agent = agent(xpos, ypos, objective, state_size,
                           action_size, self.hidden_size, genome, gi)

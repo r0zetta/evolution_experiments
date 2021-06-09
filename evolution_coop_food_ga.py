@@ -77,7 +77,7 @@ class game_space:
         self.start_walls = num_walls
         self.action_size = 6
         self.hidden_size = 32
-        self.pool_size = 500
+        self.pool_size = 2000
         self.state_size = self.get_state_size()
         self.genome_size = (self.state_size*self.hidden_size) + (self.action_size*self.hidden_size)
         self.agent_types = ["picker", "feeder"]
@@ -198,15 +198,15 @@ class game_space:
         ypos, xpos = item[0]
         state_size = self.get_state_size()
         action_size = self.action_size
-        genome = None
-        gi = 0
-        while True:
-            i = random.choice(range(len(self.genome_pool[atype])))
-            item = self.genome_pool[atype][i]
-            genome, fitness = item
-            if fitness is None:
-                gi = i
-                break
+
+        selectable = []
+        for i, item in enumerate(self.genome_pool[atype]):
+            g, f = item
+            if f is None:
+                selectable.append(i)
+        gi = random.choice(selectable)
+        item = self.genome_pool[atype][gi]
+        genome, fitness = item
 
         self.agents[atype][index] = agent(xpos, ypos, state_size, action_size,
                                           self.hidden_size, genome, gi)
