@@ -422,7 +422,7 @@ class game_space:
         return xoff, yoff
 
     def get_state_size(self):
-        state_size = 11
+        state_size = 27
         return state_size
 
     def make_small_state(self, index, atype):
@@ -432,7 +432,7 @@ class game_space:
         xoff, yoff = self.get_nearest_obj_offset(xpos, ypos, atype)
 
         space = self.add_items_to_game_space()
-        os = [-1, 0, 1]
+        os = [-2, -1, 0, 1, 2]
         offsets = []
         for x in os:
             for y in os:
