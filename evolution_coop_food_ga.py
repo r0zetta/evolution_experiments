@@ -292,12 +292,13 @@ class game_space:
         if space_val == 0: # empty space, move forward
             self.agents[atype][index].xpos = newx
             self.agents[atype][index].ypos = newy
-        if space_val == self.berry_id and holding == False:
-            self.agents[atype][index].xpos = newx
-            self.agents[atype][index].ypos = newy
-            self.agents[atype][index].holding_food = True
-            self.remove_berry(newx, newy)
-            got_food = True
+        if atype == "feeder":
+            if space_val == self.berry_id and holding == False:
+                self.agents[atype][index].xpos = newx
+                self.agents[atype][index].ypos = newy
+                self.agents[atype][index].holding_food = True
+                self.remove_berry(newx, newy)
+                got_food = True
         return newx, newy, space_val, got_food
 
     def move_agent(self, index, action, atype):
@@ -509,7 +510,7 @@ class game_space:
         msg += "New genomes from mutations: " + str(len(mutated_fit)) + "\n"
         # Select pairs to reproduce and mutate
         repr_genomes = []
-        if len(fit_genomes) > 2:
+        if len(fit_genomes) > 1:
             num_pairs = min(int(self.pool_size/50), int(len(fit_genomes)))
             for _ in range(num_pairs):
                 g1, g2 = random.sample(fit_genomes, 2)
