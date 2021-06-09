@@ -167,7 +167,9 @@ class game_space:
         action_size = self.action_size
         genome = None
         gi = 0
-        for i, item in enumerate(self.genome_pool[atype]):
+        while True:
+            i = random.choice(range(len(self.genome_pool[atype])))
+            item = self.genome_pool[atype][i]
             genome, fitness = item
             if fitness is None:
                 gi = i
@@ -560,7 +562,7 @@ while True:
     if steps % int(gs.max_episode_len) == 0:
         for t in gs.agent_types:
             s0, u0 = gs.get_genome_statistics(t)
-            if u0 < 30:
+            if u0 < 70:
                 prev_train_msg = ""
                 for tt in gs.agent_types:
                     f = gs.get_genome_fitness(tt)
