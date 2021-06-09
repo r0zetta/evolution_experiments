@@ -309,11 +309,14 @@ class game_space:
         elif action in [1, 2, 3, 4]:
             newx, newy, space_val, got_food = self.move_forward(index, action, atype)
             if space_val == self.berry_id and got_food == True:
-                self.agents[atype][index].fitness += 2
+                self.agents[atype][index].fitness += 5
+                s = self.agents[atype][index].episode_steps
+                self.agents[atype][index].last_success = s
+                self.agents[atype][index].holding_food = True
             else:
                 if atype == "picker":
                     if space_val == self.food_id and holding == False:
-                        self.agents[atype][index].fitness += 50
+                        self.agents[atype][index].fitness += 5
                         s = self.agents[atype][index].episode_steps
                         self.agents[atype][index].last_success = s
                         self.agents[atype][index].holding_food = True
@@ -324,16 +327,20 @@ class game_space:
                         self.agents[atype][index].last_success = s
                         self.agents[atype][index].holding_food = False
         else: # drop berry
-            if holding == True:
-                xpos = self.agents[atype][index].xpos
-                ypos = self.agents[atype][index].ypos
-                last_action = self.agents[atype][index].last_action
-                if last_action < 1:
-                    last_action = 1
-                sv = self.get_space_val_in_direction(xpos, ypos, last_action)
-                if sv == 0:
-                    self.agents[atype][index].holding_food = False
-                    self.add_berry(xpos, ypos)
+            if atype == "picker":
+                if holding == True:
+                    xpos = self.agents[atype][index].xpos
+                    ypos = self.agents[atype][index].ypos
+                    last_action = self.agents[atype][index].last_action
+                    if last_action < 1:
+                        last_action = 1
+                    sv = self.get_space_val_in_direction(xpos, ypos, last_action)
+                    if sv == 0:
+                        self.agents[atype][index].holding_food = False
+                        self.add_berry(xpos, ypos)
+                        self.agents[atype][index].fitness += 50
+                        s = self.agents[atype][index].episode_steps
+                        self.agents[atype][index].last_success = s
 
         if action in [1, 2, 3, 4]:
             self.agents[atype][index].last_action = action
