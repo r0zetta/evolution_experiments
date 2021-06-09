@@ -550,7 +550,7 @@ while True:
         print(gs.print_game_space())
         print()
         print(msg(gs))
-        #time.sleep(0.03)
+        time.sleep(0.03)
     elif steps%gs.max_episode_len == 0:
         os.system('clear')
         print()
