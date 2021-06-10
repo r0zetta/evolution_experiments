@@ -301,6 +301,10 @@ class game_space:
                 got_food = True
         return newx, newy, space_val, got_food
 
+    def update_success_step(self, index, atype):
+        s = self.agents[atype][index].episode_steps
+        self.agents[atype][index].last_success = s
+
     def move_agent(self, index, action, atype):
         done = False
         holding = self.agents[atype][index].holding_food
@@ -309,23 +313,16 @@ class game_space:
         elif action in [1, 2, 3, 4]:
             newx, newy, space_val, got_food = self.move_forward(index, action, atype)
             if space_val == self.berry_id and got_food == True:
-                self.agents[atype][index].fitness += 5
-                s = self.agents[atype][index].episode_steps
-                self.agents[atype][index].last_success = s
-                self.agents[atype][index].holding_food = True
-            else:
-                if atype == "picker":
-                    if space_val == self.food_id and holding == False:
-                        self.agents[atype][index].fitness += 5
-                        s = self.agents[atype][index].episode_steps
-                        self.agents[atype][index].last_success = s
-                        self.agents[atype][index].holding_food = True
-                else:
-                    if space_val == self.queen_id and holding == True:
-                        self.agents[atype][index].fitness += 50
-                        s = self.agents[atype][index].episode_steps
-                        self.agents[atype][index].last_success = s
-                        self.agents[atype][index].holding_food = False
+                self.update_success_step(index, atype)
+            elif space_val == self.food_id:
+                if atype == "picker" and holding == False:
+                    self.update_success_step(index, atype)
+                    self.agents[atype][index].holding_food = True
+            elif space_val == self.queen_id:
+                if atype == "feeder" and holding == True:
+                    self.agents[atype][index].fitness += 50
+                    self.update_success_step(index, atype)
+                    self.agents[atype][index].holding_food = False
         else: # drop berry
             if atype == "picker":
                 if holding == True:
@@ -339,8 +336,7 @@ class game_space:
                         self.agents[atype][index].holding_food = False
                         self.add_berry(xpos, ypos)
                         self.agents[atype][index].fitness += 50
-                        s = self.agents[atype][index].episode_steps
-                        self.agents[atype][index].last_success = s
+                        self.update_success_step(index, atype)
 
         if action in [1, 2, 3, 4]:
             self.agents[atype][index].last_action = action
