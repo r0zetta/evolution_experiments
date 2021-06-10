@@ -391,13 +391,11 @@ class game_space:
         dst = distance.euclidean([xa, ya], [xb, yb])
         return dst
 
-    def get_nearest_obj_offset(self, xpos, ypos, atype):
+    def get_nearest_obj_offset(self, xpos, ypos, itemid):
         sp = self.add_items_to_game_space()
-        obj_positions = []
-        if atype == "picker":
-            obj_positions = np.argwhere(sp==self.food_id)
-        else:
-            obj_positions = np.argwhere(sp==self.queen_id)
+        obj_positions = np.argwhere(sp==itemid)
+        if len(obj_positions) < 1:
+            return 0,0
         ind = {}
         for index, item in enumerate(obj_positions):
             ey, ex = item
@@ -422,17 +420,22 @@ class game_space:
         return xoff, yoff
 
     def get_state_size(self):
-        state_size = 27
+        state_size = 14
         return state_size
 
     def make_small_state(self, index, atype):
         xpos = self.agents[atype][index].xpos
         ypos = self.agents[atype][index].ypos
         holding = int(self.agents[atype][index].holding_food)
-        xoff, yoff = self.get_nearest_obj_offset(xpos, ypos, atype)
+        la = self.agents[atype][index].last_action
+        itemid = self.food_id
+        if atype == "feeder":
+            itemid = self.queen_id
+        xoff, yoff = self.get_nearest_obj_offset(xpos, ypos, itemid)
+        bxoff, byoff = self.get_nearest_obj_offset(xpos, ypos, self.berry_id)
 
         space = self.add_items_to_game_space()
-        os = [-2, -1, 0, 1, 2]
+        os = [-1, 0, 1]
         offsets = []
         for x in os:
             for y in os:
@@ -440,7 +443,7 @@ class game_space:
                     continue
                 offsets.append([x, y])
 
-        tiles = [holding, xoff, yoff]
+        tiles = [la, holding, xoff, yoff, bxoff, byoff]
         for i in offsets:
             oy, ox = i
             tile = self.get_tile_val(space[ypos+oy][xpos+ox], atype)
