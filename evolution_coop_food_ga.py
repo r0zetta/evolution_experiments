@@ -77,7 +77,7 @@ class game_space:
         self.start_walls = num_walls
         self.action_size = 6
         self.hidden_size = 32
-        self.pool_size = 500
+        self.pool_size = 1000
         self.state_size = self.get_state_size()
         self.genome_size = (self.state_size*self.hidden_size) + (self.action_size*self.hidden_size)
         self.agent_types = ["picker", "feeder"]
@@ -312,15 +312,12 @@ class game_space:
             pass
         elif action in [1, 2, 3, 4]:
             newx, newy, space_val, got_food = self.move_forward(index, action, atype)
-            if space_val == self.berry_id and got_food == True:
-                self.update_success_step(index, atype)
-            elif space_val == self.food_id:
+            if space_val == self.food_id:
                 if atype == "picker" and holding == False:
-                    self.update_success_step(index, atype)
                     self.agents[atype][index].holding_food = True
-            elif space_val == self.queen_id:
+            if space_val == self.queen_id:
                 if atype == "feeder" and holding == True:
-                    self.agents[atype][index].fitness += 50
+                    self.agents[atype][index].fitness += 10
                     self.update_success_step(index, atype)
                     self.agents[atype][index].holding_food = False
         else: # drop berry
@@ -335,7 +332,7 @@ class game_space:
                     if sv == 0:
                         self.agents[atype][index].holding_food = False
                         self.add_berry(xpos, ypos)
-                        self.agents[atype][index].fitness += 50
+                        self.agents[atype][index].fitness += 10
                         self.update_success_step(index, atype)
 
         if action in [1, 2, 3, 4]:
@@ -493,8 +490,9 @@ class game_space:
             genome = pool[index][0]
             fit_genomes.append(genome)
             count += 1
-            if count > int(len(vi) * threshold):
-                break
+            if len(vi) > 50:
+                if count > int(len(vi) * threshold):
+                    break
         return fit_genomes
 
     def create_new_genome_pool(self, atype):
@@ -512,7 +510,10 @@ class game_space:
         msg += atype + ": Previous pool had " + str(len(fit_genomes)) + " fit genomes.\n"
         mutated_fit = []
         for item in fit_genomes:
-            mutated_fit.extend(self.mutate_genome(item, 3))
+            if len(fit_genomes) > 10:
+                mutated_fit.extend(self.mutate_genome(item, 3))
+            else:
+                mutated_fit.extend(self.mutate_genome(item, 10))
         msg += "New genomes from mutations: " + str(len(mutated_fit)) + "\n"
         # Select pairs to reproduce and mutate
         repr_genomes = []
@@ -565,7 +566,10 @@ class game_space:
             genome, fitness = item
             if fitness is not None:
                 f.append(fitness)
-        return np.mean(f)
+        if len(f) > 0:
+            return np.mean(f), max(f)
+        else:
+            return 0,0
 
     def save_genomes(self, atype):
         with open(self.savedir + "/" + atype + "_genome_pool.pkl", "wb") as f:
@@ -610,9 +614,10 @@ def msg(gs):
     msg = "Steps: " + str(steps) + " Episode length: " + str(gs.max_episode_len) + "\n\n"
     for t in gs.agent_types:
         s, u = gs.get_genome_statistics(t)
-        f = gs.get_genome_fitness(t)
+        f, m = gs.get_genome_fitness(t)
         msg += t + ": Success: " + str(s) + " Unused: " + str(u) 
-        msg += " Fitness: " + "%.2f"%f + "\n"
+        msg += " Fitness: " + "%.2f"%f
+        msg += " Max: " + str(m) + "\n"
         msg += "[ "
         p = prev_stats[t]
         for s in p[-10:]:
@@ -671,7 +676,7 @@ while True:
             if u0 < 70:
                 prev_train_msg = ""
                 for tt in gs.agent_types:
-                    f = gs.get_genome_fitness(tt)
+                    f, m = gs.get_genome_fitness(tt)
                     prev_stats[tt].append(f)
                     with open(savedir + "/evolution_stats_"+tt+".json", "w") as f:
                         f.write(json.dumps(prev_stats[tt]))
