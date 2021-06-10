@@ -77,7 +77,7 @@ class game_space:
         self.start_walls = num_walls
         self.action_size = 6
         self.hidden_size = 32
-        self.pool_size = 1000
+        self.pool_size = 2000
         self.state_size = self.get_state_size()
         self.genome_size = (self.state_size*self.hidden_size) + (self.action_size*self.hidden_size)
         self.agent_types = ["picker", "feeder"]
@@ -422,7 +422,7 @@ class game_space:
         return xoff, yoff
 
     def get_state_size(self):
-        state_size = 14
+        state_size = 30
         return state_size
 
     def make_small_state(self, index, atype):
@@ -437,7 +437,7 @@ class game_space:
         bxoff, byoff = self.get_nearest_obj_offset(xpos, ypos, self.berry_id)
 
         space = self.add_items_to_game_space()
-        os = [-1, 0, 1]
+        os = [-2, -1, 0, 1, 2]
         offsets = []
         for x in os:
             for y in os:
