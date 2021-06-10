@@ -245,6 +245,15 @@ class game_space:
         state = self.get_agent_state(index, atype)
         self.agents[atype][index].state = state
 
+    def spawn_more_berries(self):
+        num_berries = len(self.berries)
+        if num_berries < 10:
+            new_berries = 10-num_berries
+            positions = self.get_random_empty_space(new_berries)
+            for p in positions:
+                y, x = p
+                self.add_berry(x, y)
+
     def add_berry(self, xpos, ypos):
         self.berries.append([ypos, xpos])
 
@@ -671,6 +680,7 @@ while True:
         print(prev_train_msg)
         print()
     if steps % int(gs.max_episode_len) == 0:
+        gs.spawn_more_berries()
         for t in gs.agent_types:
             s0, u0 = gs.get_genome_statistics(t)
             if u0 < 70:
