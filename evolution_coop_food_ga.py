@@ -77,7 +77,7 @@ class game_space:
         self.start_walls = num_walls
         self.action_size = 6
         self.hidden_size = 32
-        self.pool_size = 2000
+        self.pool_size = 500
         self.state_size = self.get_state_size()
         self.genome_size = (self.state_size*self.hidden_size) + (self.action_size*self.hidden_size)
         self.agent_types = ["picker", "feeder"]
@@ -511,7 +511,7 @@ class game_space:
             genome, fitness = item
             if fitness is None:
                 new_genomes.append(genome)
-        threshold = 0.60
+        threshold = 0.25
         fit_genomes = self.get_best_genomes(pool, threshold)
         msg += atype + ": Previous pool had " + str(len(fit_genomes)) + " fit genomes.\n"
         mutated_fit = []
@@ -628,10 +628,10 @@ def msg(gs):
 game_space_width = 30
 game_space_height = 15
 num_walls = 10
-num_agents = 5
+num_agents = 10
 num_food = 5
 num_queens = 5
-max_episode_len = 100
+max_episode_len = 50
 savedir = "coop_feed_save"
 if not os.path.exists(savedir):
     os.makedirs(savedir)
