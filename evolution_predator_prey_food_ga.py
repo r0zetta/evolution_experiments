@@ -60,11 +60,10 @@ class agent:
         return self.model.get_action(self.state)
 
 class game_space:
-    def __init__(self, width, height, num_walls=0, num_agents=1, num_food=10,
-                 max_episode_len=200, savedir="save"):
+    def __init__(self, width, height, num_walls=0, num_predators=1, num_prey=1,
+                 num_food=10, max_episode_len=200, savedir="save"):
         self.savedir = savedir
         self.max_episode_len = max_episode_len
-        self.num_agents = num_agents
         self.width = width+2
         self.height = height+2
         self.start_walls = num_walls
@@ -75,6 +74,9 @@ class game_space:
         self.genome_size = (self.state_size*self.hidden_size) + (self.action_size*self.hidden_size)
         self.agent_types = ["predator", "prey"]
         self.starts = {"predator":2, "prey":2000}
+        self.num_agents = {}
+        self.num_agents["predator"] = num_predators
+        self.num_agents["prey"] = num_prey
         self.num_food = num_food
         self.food = []
         self.food_id = 10000
@@ -93,7 +95,7 @@ class game_space:
         self.agents = {}
         for t in self.agent_types:
             self.agents[t] = []
-            for index in range(self.num_agents):
+            for index in range(self.num_agents[t]):
                 self.agents[t].append(None)
         self.walls = []
         space = self.make_empty_game_space()
@@ -581,11 +583,13 @@ def msg(gs):
 
 random.seed(1337)
 
-game_space_width = 30
-game_space_height = 15
-num_walls = 10
-num_agents = 10
-max_episode_len = 100
+game_space_width = 60
+game_space_height = 30
+num_walls = 40
+num_predators = 10
+num_prey = 40
+num_food = 40
+max_episode_len = 50
 savedir = "predator_prey_food_save"
 if not os.path.exists(savedir):
     os.makedirs(savedir)
@@ -593,7 +597,9 @@ if not os.path.exists(savedir):
 gs = game_space(game_space_width,
                 game_space_height,
                 num_walls=num_walls,
-                num_agents=num_agents,
+                num_predators=num_predators,
+                num_prey=num_prey,
+                num_food=num_food,
                 max_episode_len=max_episode_len,
                 savedir=savedir)
 
