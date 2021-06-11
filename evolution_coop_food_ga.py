@@ -269,7 +269,7 @@ class game_space:
             if y == ypos and x == xpos:
                 bi = index
                 break
-        del(self.berries[bi])
+        del self.berries[bi]
 
     def get_space_val_in_direction(self, xpos, ypos, action):
         newx = xpos
@@ -517,7 +517,7 @@ class game_space:
         if bpl > self.pool_size:
             while len(self.best_policies[atype]) > self.pool_size:
                 val, index = self.get_min_best_fitness(atype)
-                del(self.best_policies[atype][index])
+                del self.best_policies[atype][index]
 
     def add_best_fitness_entry(self, atype, genome, fitness):
         self.trim_best_policies(atype)

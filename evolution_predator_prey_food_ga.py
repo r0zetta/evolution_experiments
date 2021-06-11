@@ -158,7 +158,7 @@ class game_space:
             if x == xpos and y == ypos:
                 fi = index
         if fi is not None:
-            del(self.food[fi])
+            del self.food[fi]
 
     def spawn_more_food(self):
         nf = len(self.food)
@@ -471,7 +471,7 @@ class game_space:
         if bpl > self.pool_size:
             while len(self.best_policies[atype]) > self.pool_size:
                 val, index = self.get_min_best_fitness(atype)
-                del(self.best_policies[atype][index])
+                del self.best_policies[atype][index]
 
     def add_best_fitness_entry(self, atype, genome, fitness):
         self.trim_best_policies(atype)
