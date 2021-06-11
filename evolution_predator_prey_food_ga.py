@@ -525,7 +525,10 @@ class game_space:
             genome, fitness = item
             if fitness is not None:
                 f.append(fitness)
-        return np.mean(f), max(f)
+        if len(f) > 0:
+            return np.mean(f), max(f)
+        else:
+            return 0,0
 
     def save_genomes(self, atype):
         with open(self.savedir + "/" + atype + "_genome_pool.pkl", "wb") as f:
