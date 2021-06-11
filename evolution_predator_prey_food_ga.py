@@ -85,6 +85,9 @@ class game_space:
         for t in self.agent_types:
             self.best_policies[t] = []
             self.genome_pool[t] = []
+            if os.path.exists(savedir + "/" + t + "_best_policies.pkl"):
+                print("Loading best " + t + " policies.")
+                self.best_policies[t] = self.load_best_policies(t)
             if os.path.exists(savedir + "/" + t + "_genome_pool.pkl"):
                 print("Loading " + t + " genomes.")
                 self.genome_pool[t] = self.load_genomes(t)
@@ -486,6 +489,19 @@ class game_space:
         else:
             return 0, 0
 
+    def get_best_policies(self, atype, num):
+        vi = {}
+        for index, item in enumerate(self.best_policies[atype]):
+            genome, fitness = item
+            vi[index] = fitness
+        ret = []
+        for index, fitness in sorted(vi.items(), key=operator.itemgetter(1),reverse=True):
+            genome = self.best_policies[atype][index][0]
+            ret.append(genome)
+            if len(ret) >= num:
+                break
+        return ret
+
     def get_best_genomes(self, atype, threshold):
         pool = self.genome_pool[atype]
         fit_genomes = []
@@ -517,6 +533,9 @@ class game_space:
                 new_genomes.append(genome)
         threshold = 0.20
         fit_genomes = self.get_best_genomes(atype, threshold)
+        best_policies = []
+        if len(self.best_policies[atype]) > 50:
+            best_policies = self.get_best_policies(atype, 50)
         msg += atype + ": Previous pool had " + str(len(fit_genomes)) + " fit genomes.\n"
         mutated_fit = []
         for item in fit_genomes:
@@ -534,6 +553,7 @@ class game_space:
                     repr_genomes.extend(self.mutate_genome(item, 3))
         msg += "New genomes from reproduction: " + str(len(repr_genomes)) + "\n"
         new_genomes.extend(fit_genomes)
+        new_genomes.extend(best_policies)
         new_genomes.extend(mutated_fit)
         new_genomes.extend(repr_genomes)
         msg += "New genome pool size: " + str(len(new_genomes)) + "\n"
