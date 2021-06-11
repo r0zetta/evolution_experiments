@@ -440,6 +440,8 @@ class game_space:
             itemid = self.queen_id
         xoff, yoff = self.get_nearest_obj_offset(xpos, ypos, itemid)
         bxoff, byoff = self.get_nearest_obj_offset(xpos, ypos, self.berry_id)
+        if atype == "picker":
+            bxoff, byoff = self.get_nearest_obj_offset(xpos, ypos, self.queen_id)
 
         space = self.add_items_to_game_space()
         os = [-2, -1, 0, 1, 2]
@@ -508,10 +510,17 @@ class game_space:
         return min_val, min_index
 
     def replace_best_fitness_entry(self, atype, index, genome, fitness):
-        del(self.best_policies[atype][index])
-        self.best_policies[atype].append([genome, fitness])
+        self.best_policies[atype][index] = ([genome, fitness])
+
+    def trim_best_policies(self, atype):
+        bpl = len(self.best_policies[atype])
+        if bpl > self.pool_size:
+            while len(self.best_policies[atype]) > self.pool_size:
+                val, index = self.get_min_best_fitness(atype)
+                del(self.best_policies[atype][index])
 
     def add_best_fitness_entry(self, atype, genome, fitness):
+        self.trim_best_policies(atype)
         if fitness < self.max_episode_len:
             return
         best_len = len(self.best_policies[atype])
