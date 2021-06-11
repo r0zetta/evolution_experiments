@@ -627,7 +627,7 @@ while True:
             if u0 < 70:
                 prev_train_msg = ""
                 for tt in gs.agent_types:
-                    f, m = gs.get_genome_fitness(t)
+                    f, m = gs.get_genome_fitness(tt)
                     prev_stats[tt].append(f)
                     with open(savedir + "/evolution_stats_"+tt+".json", "w") as f:
                         f.write(json.dumps(prev_stats[tt]))
