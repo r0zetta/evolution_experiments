@@ -86,7 +86,9 @@ class game_space:
         self.queen_id = 20000
         self.berry_id = 30000
         self.genome_pool = {}
+        self.best_policies = {}
         for t in self.agent_types:
+            self.best_policies[t] = []
             self.genome_pool[t] = []
             if os.path.exists(savedir + "/" + t + "_genome_pool.pkl"):
                 print("Loading " + t + " genomes.")
@@ -486,7 +488,50 @@ class game_space:
             new_genomes.append(gm)
         return new_genomes
 
-    def get_best_genomes(self, pool, threshold):
+    def get_min_best_fitness(self, atype):
+        best_len = len(self.best_policies[atype])
+        if best_len < self.pool_size:
+            return self.max_episode_len
+        min_val = None
+        min_index = None
+        for index, item in enumerate(self.best_policies[atype]):
+            genome, fitness = item
+            if min_val is None:
+                min_val = fitness
+                min_index = index
+            if fitness < min_val:
+                min_val = fitness
+                min_index = index
+        return min_val, min_index
+
+    def replace_best_fitness_entry(self, atype, index, genome, fitness):
+        del(self.best_policies[atype][index])
+        self.best_policies[atype].append([genome, fitness])
+
+    def add_best_fitness_entry(self, atype, genome, fitness):
+        if fitness < self.max_episode_len:
+            return
+        best_len = len(self.best_policies[atype])
+        if best_len >= self.pool_size:
+            mv, mi = self.get_min_best_fitness(atype)
+            if fitness > mv:
+                self.replace_best_fitness_entry(atype, mi, genome, fitness)
+        else:
+            self.best_policies[atype].append([genome, fitness])
+
+    def get_best_policy_stats(self, atype):
+        f = []
+        l = len(self.best_policies[atype])
+        for item in self.best_policies[atype]:
+            genome, fitness = item
+            f.append(fitness)
+        if len(f) > 0:
+            return np.mean(f), l
+        else:
+            return 0, 0
+
+    def get_best_genomes(self, atype, threshold):
+        pool = self.genome_pool[atype]
         fit_genomes = []
         vi = {}
         for index, item in enumerate(pool):
@@ -498,6 +543,7 @@ class game_space:
         for index, fitness in sorted(vi.items(), key=operator.itemgetter(1),reverse=True):
             genome = pool[index][0]
             fit_genomes.append(genome)
+            self.add_best_fitness_entry(atype, genome, fitness)
             count += 1
             if len(vi) > 50:
                 if count > int(len(vi) * threshold):
@@ -515,7 +561,7 @@ class game_space:
             if fitness is None:
                 new_genomes.append(genome)
         threshold = 0.20
-        fit_genomes = self.get_best_genomes(pool, threshold)
+        fit_genomes = self.get_best_genomes(atype, threshold)
         msg += atype + ": Previous pool had " + str(len(fit_genomes)) + " fit genomes.\n"
         mutated_fit = []
         for item in fit_genomes:
@@ -580,6 +626,16 @@ class game_space:
         else:
             return 0,0
 
+    def save_best_policies(self, atype):
+        with open(self.savedir + "/" + atype + "_best_policies.pkl", "wb") as f:
+            f.write(pickle.dumps(self.best_policies[atype]))
+
+    def load_best_policies(self, atype):
+        n = []
+        with open(self.savedir + "/" + atype + "_best_policies.pkl", "rb") as f:
+            n = pickle.load(f)
+        return n
+
     def save_genomes(self, atype):
         with open(self.savedir + "/" + atype + "_genome_pool.pkl", "wb") as f:
             f.write(pickle.dumps(self.genome_pool[atype]))
@@ -589,6 +645,7 @@ class game_space:
         with open(self.savedir + "/" + atype + "_genome_pool.pkl", "rb") as f:
             n = pickle.load(f)
         return n
+
 
 
 
@@ -624,9 +681,10 @@ def msg(gs):
     for t in gs.agent_types:
         s, u = gs.get_genome_statistics(t)
         f, m = gs.get_genome_fitness(t)
+        pf, pn = gs.get_best_policy_stats(t)
         msg += t + ": Success: " + str(s) + " Unused: " + str(u) 
-        msg += " Fitness: " + "%.2f"%f
-        msg += " Max: " + str(m) + "\n"
+        msg += " Fitness: " + "%.2f"%f + " Max: " + str(m) + "\n"
+        msg += "Best policy fitness: " + "%.2f"%pf + " Num: " + str(pn) + "\n"
         msg += "[ "
         p = prev_stats[t]
         for s in p[-10:]:
@@ -693,5 +751,6 @@ while True:
                         f.write(json.dumps(prev_stats[tt]))
                     prev_train_msg += gs.create_new_genome_pool(tt)
                     gs.save_genomes(tt)
+                    gs.save_best_policies(tt)
     steps += 1
 
