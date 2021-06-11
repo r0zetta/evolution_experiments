@@ -55,36 +55,29 @@ class agent:
         self.state = None
         self.episode_steps = 0
         self.last_success = None
-        self.holding_food = False
-        self.last_action = 0
 
     def get_action(self):
         return self.model.get_action(self.state)
 
 class game_space:
-    def __init__(self, width, height, num_walls=0, num_agents=1, num_food=1, num_queens=1,
+    def __init__(self, width, height, num_walls=0, num_agents=1, num_food=10,
                  max_episode_len=200, savedir="save"):
         self.savedir = savedir
         self.max_episode_len = max_episode_len
         self.num_agents = num_agents
         self.width = width+2
         self.height = height+2
-        self.num_food = num_food
-        self.num_queens = num_queens
-        self.berries = []
-        self.food = []
-        self.queens = []
         self.start_walls = num_walls
-        self.action_size = 6
+        self.action_size = 5
         self.hidden_size = 32
-        self.pool_size = 2000
+        self.pool_size = 500
         self.state_size = self.get_state_size()
         self.genome_size = (self.state_size*self.hidden_size) + (self.action_size*self.hidden_size)
-        self.agent_types = ["picker", "feeder"]
-        self.starts = {"picker":2, "feeder":2000}
+        self.agent_types = ["predator", "prey"]
+        self.starts = {"predator":2, "prey":2000}
+        self.num_food = num_food
+        self.food = []
         self.food_id = 10000
-        self.queen_id = 20000
-        self.berry_id = 30000
         self.genome_pool = {}
         for t in self.agent_types:
             self.genome_pool[t] = []
@@ -107,10 +100,8 @@ class game_space:
         self.game_space = space
         self.add_walls(self.start_walls)
         self.num_walls = len(self.walls)
+        self.add_food()
         self.initial_game_space = np.array(self.game_space)
-        self.make_food()
-        self.make_queens()
-        self.make_berries()
         for t in self.agent_types:
             for index, agent in enumerate(self.agents[t]):
                 self.create_new_agent(index, t)
@@ -139,27 +130,6 @@ class game_space:
             space[n][self.width-2] = 1
         return space
 
-    def make_food(self):
-        self.food = []
-        locations = self.get_random_empty_space(self.num_food)
-        for item in locations:
-            y, x = item
-            self.food.append([y, x])
-
-    def make_queens(self):
-        self.queens = []
-        locations = self.get_random_empty_space(self.num_queens)
-        for item in locations:
-            y, x = item
-            self.queens.append([y, x])
-
-    def make_berries(self):
-        self.berries = []
-        locations = self.get_random_empty_space(self.num_queens)
-        for item in locations:
-            y, x = item
-            self.berries.append([y, x])
-
     def add_blocks(self, num):
         locations = self.get_random_empty_space(num)
         for item in locations:
@@ -167,6 +137,30 @@ class game_space:
             self.game_space[y][x] = 1
             self.walls.append([y, x])
         self.num_walls = len(self.walls)
+
+    def add_food(self):
+        locations = self.get_random_empty_space(self.num_food)
+        for item in locations:
+            y, x = item
+            self.food.append([y, x])
+
+    def remove_food(self, xpos, ypos):
+        fi = None
+        for index, item in enumerate(self.food):
+            y, x = item
+            if x == xpos and y == ypos:
+                fi = index
+        if fi is not None:
+            del(self.food[fi])
+
+    def spawn_more_food(self):
+        nf = len(self.food)
+        if nf < self.num_food:
+            mf = self.num_food - nf
+            locs = self.get_random_empty_space(mf)
+            for loc in locs:
+                y, x = loc
+                self.food.append([y, x])
 
     def add_walls(self, num):
         added = 0
@@ -193,7 +187,6 @@ class game_space:
                     break
 
     def create_new_agent(self, index, atype):
-        #print("Create new agent " + str(atype) + " " + str(index))
         item = self.get_random_empty_space(1)
         ypos, xpos = item[0]
         state_size = self.get_state_size()
@@ -218,15 +211,9 @@ class game_space:
                 for index, agent in enumerate(self.agents[t]):
                     if agent is not None:
                         space[agent.ypos][agent.xpos] = self.starts[t]+index
-        for item in self.queens:
-            y, x = item
-            space[y][x] = self.queen_id
-        for item in self.food:
-            y, x = item
+        for f in self.food:
+            y, x = f
             space[y][x] = self.food_id
-        for item in self.berries:
-            y, x = item
-            space[y][x] = self.berry_id
         return space
 
     def get_random_empty_space(self, num=1):
@@ -235,7 +222,6 @@ class game_space:
         return random.sample(empties, num)
 
     def respawn_agent(self, index, atype):
-        #print("Respawn " + str(atype) + " " + str(index))
         gi = self.agents[atype][index].gi
         item = self.genome_pool[atype][gi]
         genome, fitness = item
@@ -245,47 +231,10 @@ class game_space:
         state = self.get_agent_state(index, atype)
         self.agents[atype][index].state = state
 
-    def spawn_more_berries(self):
-        num_berries = len(self.berries)
-        if num_berries < 10:
-            new_berries = 10-num_berries
-            positions = self.get_random_empty_space(new_berries)
-            for p in positions:
-                y, x = p
-                self.add_berry(x, y)
-
-    def add_berry(self, xpos, ypos):
-        self.berries.append([ypos, xpos])
-
-    def remove_berry(self, xpos, ypos):
-        bi = None
-        for index, item in enumerate(self.berries):
-            y, x = item
-            if y == ypos and x == xpos:
-                bi = index
-                break
-        del(self.berries[bi])
-
-    def get_space_val_in_direction(self, xpos, ypos, action):
-        newx = xpos
-        newy = ypos
-        if action == 1: # moving up
-            newy = ypos-1
-        elif action == 2: # moving right
-            newx = xpos+1
-        elif action == 3: # moving down
-            newy = ypos+1
-        elif action == 4: # moving left
-            newx = xpos-1
-        space = self.add_items_to_game_space()
-        space_val = space[newy][newx]
-        return space_val
-
     def move_forward(self, index, action, atype):
+        got_food = False
         xpos = self.agents[atype][index].xpos
         ypos = self.agents[atype][index].ypos
-        holding = self.agents[atype][index].holding_food
-        got_food = False
         newx = xpos
         newy = ypos
         if action == 1: # moving up
@@ -301,53 +250,35 @@ class game_space:
         if space_val == 0: # empty space, move forward
             self.agents[atype][index].xpos = newx
             self.agents[atype][index].ypos = newy
-        if atype == "feeder":
-            if space_val == self.berry_id and holding == False:
-                self.agents[atype][index].xpos = newx
-                self.agents[atype][index].ypos = newy
-                self.agents[atype][index].holding_food = True
-                self.remove_berry(newx, newy)
+        if atype == "prey":
+            if space_val == self.food_id:
                 got_food = True
+                self.remove_food(newx, newy)
+                self.spawn_more_food()
         return newx, newy, space_val, got_food
 
-    def update_success_step(self, index, atype):
+    def update_agent_success(self, atype, index):
         s = self.agents[atype][index].episode_steps
         self.agents[atype][index].last_success = s
 
     def move_agent(self, index, action, atype):
         done = False
-        holding = self.agents[atype][index].holding_food
         if action == 0: # do nothing
             pass
-        elif action in [1, 2, 3, 4]:
+        else:
             newx, newy, space_val, got_food = self.move_forward(index, action, atype)
-            if space_val == self.food_id:
-                if atype == "picker" and holding == False:
-                    self.agents[atype][index].holding_food = True
-            if space_val == self.queen_id:
-                if atype == "feeder" and holding == True:
+            if got_food == True:
+                self.agents[atype][index].fitness += 10
+                self.update_agent_success(atype, index)
+            if atype == "predator":
+                if space_val >= self.starts["prey"] and space_val < self.food_id:
                     self.agents[atype][index].fitness += 10
-                    self.update_success_step(index, atype)
-                    self.agents[atype][index].holding_food = False
-        else: # drop berry
-            if atype == "picker":
-                if holding == True:
-                    xpos = self.agents[atype][index].xpos
-                    ypos = self.agents[atype][index].ypos
-                    last_action = self.agents[atype][index].last_action
-                    if last_action < 1:
-                        last_action = 1
-                    sv = self.get_space_val_in_direction(xpos, ypos, last_action)
-                    if sv == 0:
-                        self.agents[atype][index].holding_food = False
-                        self.add_berry(xpos, ypos)
-                        self.agents[atype][index].fitness += 10
-                        self.update_success_step(index, atype)
-
-        if action in [1, 2, 3, 4]:
-            self.agents[atype][index].last_action = action
-        self.agents[atype][index].fitness += 1
+                    self.update_agent_success(atype, index)
+                    prey_index = self.get_prey_at_position(newx, newy)
+                    prey_fitness = self.agents["prey"][prey_index].fitness
+                    self.respawn_agent(prey_index, "prey")
         state = self.get_agent_state(index, atype)
+        self.agents[atype][index].fitness += 1
         self.agents[atype][index].state = state
         self.agents[atype][index].episode_steps += 1
         ls = self.agents[atype][index].last_success
@@ -359,8 +290,8 @@ class game_space:
             self.respawn_agent(index, atype)
 
 
-    def get_agent_at_position(self, xpos, ypos, atype):
-        for index, agent in enumerate(self.agents[atype]):
+    def get_prey_at_position(self, xpos, ypos):
+        for index, agent in enumerate(self.agents["prey"]):
             if agent.xpos == xpos and agent.ypos == ypos:
                 return index
         return None
@@ -371,73 +302,84 @@ class game_space:
     def get_tile_val(self, tile, atype):
         if tile == 0:
             return 0
-        if tile == 1:
-            return -1
-        if tile >= self.starts["picker"] and tile < self.starts["feeder"]:
-            return -1
-        if tile >= self.starts["feeder"] and tile < self.food_id:
-            return -1
-        if atype == "picker" and tile == self.food_id:
-            return 1
-        if atype == "feeder" and tile == self.food_id:
-            return -1
-        if atype == "feeder" and tile == self.queen_id:
-            return 1
-        if atype == "picker" and tile == self.queen_id:
-            return -1
-        if tile == self.berry_id:
-            return 2
-        return -1
+        if atype == "predator":
+            if tile >= self.starts["prey"] and tile < self.food_id:
+                return 1
+            else:
+                return -1
+        else:
+            if tile >= self.starts["predator"] and tile < self.starts["prey"]:
+                return -1
+            elif tile == self.food_id:
+                return 2
+            else:
+                return 1
 
     def distance(self, xa, ya, xb, yb):
         dst = distance.euclidean([xa, ya], [xb, yb])
         return dst
 
-    def get_nearest_obj_offset(self, xpos, ypos, itemid):
-        sp = self.add_items_to_game_space()
-        obj_positions = np.argwhere(sp==itemid)
-        if len(obj_positions) < 1:
-            return 0,0
+    def get_offsets(self, xpos, ypos, positions, num):
         ind = {}
-        for index, item in enumerate(obj_positions):
+        for index, item in enumerate(positions):
             ey, ex = item
             dist = self.distance(ex, ey, xpos, ypos)
             ind[index] = dist
-        nearest_index = None
+        nearest_indices = []
         for index, dist in sorted(ind.items(), key=operator.itemgetter(1),reverse=False):
-            nearest_index = index
-            break
-        item = obj_positions[nearest_index]
-        ey, ex = item
-        xoff = 0
-        yoff = 0
-        if ex < xpos:
-            xoff = -1
-        elif ex > xpos:
-            xoff = 1
-        if ey < ypos:
-            yoff = -1
-        elif ey > ypos:
-            yoff = 1
-        return xoff, yoff
+            nearest_indices.append(index)
+            if len(nearest_indices) >= num:
+                break
+        offsets = []
+        for index in nearest_indices:
+            item = positions[index]
+            ey, ex = item
+            xoff = 0
+            yoff = 0
+            if ex < xpos:
+                xoff = -1
+            elif ex > xpos:
+                xoff = 1
+            if ey < ypos:
+                yoff = -1
+            elif ey > ypos:
+                yoff = 1
+            offsets.append([xoff,yoff])
+        return offsets
+
+    def get_nearest_enemy_offsets(self, xpos, ypos, atype, num):
+        sp = self.add_items_to_game_space()
+        positions = []
+        if atype == "predator":
+            positions = np.argwhere((sp>=self.starts["prey"]) & (sp<self.food_id))
+        else:
+            positions = np.argwhere((sp>=self.starts["predator"]) & (sp<self.starts["prey"]))
+        offsets = self.get_offsets(xpos, ypos, positions, num)
+        return offsets
+
+    def get_nearest_food_offsets(self, xpos, ypos, num):
+        sp = self.add_items_to_game_space()
+        positions = np.argwhere(sp==self.food_id)
+        offsets = self.get_offsets(xpos, ypos, positions, num)
+        return offsets
 
     def get_state_size(self):
-        state_size = 30
+        state_size = 16
         return state_size
 
     def make_small_state(self, index, atype):
         xpos = self.agents[atype][index].xpos
         ypos = self.agents[atype][index].ypos
-        holding = int(self.agents[atype][index].holding_food)
-        la = self.agents[atype][index].last_action
-        itemid = self.food_id
-        if atype == "feeder":
-            itemid = self.queen_id
-        xoff, yoff = self.get_nearest_obj_offset(xpos, ypos, itemid)
-        bxoff, byoff = self.get_nearest_obj_offset(xpos, ypos, self.berry_id)
+        eoffsets = None
+        foffsets = None
+        if atype == "predator":
+            eoffsets = self.get_nearest_enemy_offsets(xpos, ypos, atype, 4)
+        else:
+            eoffsets = self.get_nearest_enemy_offsets(xpos, ypos, atype, 2)
+            foffsets = self.get_nearest_food_offsets(xpos, ypos, 2)
 
         space = self.add_items_to_game_space()
-        os = [-2, -1, 0, 1, 2]
+        os = [-1, 0, 1]
         offsets = []
         for x in os:
             for y in os:
@@ -445,7 +387,19 @@ class game_space:
                     continue
                 offsets.append([x, y])
 
-        tiles = [la, holding, xoff, yoff, bxoff, byoff]
+        tiles = []
+        if eoffsets is not None:
+            for item in eoffsets:
+                yp, xp = item
+                tiles.append(xp)
+                tiles.append(yp)
+
+        if foffsets is not None:
+            for item in foffsets:
+                yp, xp = item
+                tiles.append(xp)
+                tiles.append(yp)
+
         for i in offsets:
             oy, ox = i
             tile = self.get_tile_val(space[ypos+oy][xpos+ox], atype)
@@ -499,9 +453,8 @@ class game_space:
             genome = pool[index][0]
             fit_genomes.append(genome)
             count += 1
-            if len(vi) > 50:
-                if count > int(len(vi) * threshold):
-                    break
+            if count > int(len(vi) * threshold):
+                break
         return fit_genomes
 
     def create_new_genome_pool(self, atype):
@@ -519,14 +472,11 @@ class game_space:
         msg += atype + ": Previous pool had " + str(len(fit_genomes)) + " fit genomes.\n"
         mutated_fit = []
         for item in fit_genomes:
-            if len(fit_genomes) > 10:
-                mutated_fit.extend(self.mutate_genome(item, 3))
-            else:
-                mutated_fit.extend(self.mutate_genome(item, 10))
+            mutated_fit.extend(self.mutate_genome(item, 3))
         msg += "New genomes from mutations: " + str(len(mutated_fit)) + "\n"
         # Select pairs to reproduce and mutate
         repr_genomes = []
-        if len(fit_genomes) > 1:
+        if len(fit_genomes) > 2:
             num_pairs = min(int(self.pool_size/50), int(len(fit_genomes)))
             for _ in range(num_pairs):
                 g1, g2 = random.sample(fit_genomes, 2)
@@ -575,10 +525,7 @@ class game_space:
             genome, fitness = item
             if fitness is not None:
                 f.append(fitness)
-        if len(f) > 0:
-            return np.mean(f), max(f)
-        else:
-            return 0,0
+        return np.mean(f), max(f)
 
     def save_genomes(self, atype):
         with open(self.savedir + "/" + atype + "_genome_pool.pkl", "wb") as f:
@@ -595,16 +542,12 @@ class game_space:
     def get_printable(self, item):
         if item == 1:
             return "\x1b[1;37;40m" + "░" + "\x1b[0m"
-        elif item >= self.starts["picker"] and item < self.starts["feeder"]:
+        elif item >= self.starts["predator"] and item < self.starts["prey"]:
             return "\x1b[1;32;40m" + "x" + "\x1b[0m"
-        elif item >= self.starts["feeder"] and item < self.food_id:
-            return "\x1b[1;33;40m" + "x" + "\x1b[0m"
+        elif item >= self.starts["prey"] and item < self.food_id:
+            return "\x1b[1;35;40m" + "x" + "\x1b[0m"
         elif item == self.food_id:
-            return "\x1b[1;31;40m" + "¥" + "\x1b[0m"
-        elif item == self.queen_id:
-            return "\x1b[1;36;40m" + "O" + "\x1b[0m"
-        elif item == self.berry_id:
-            return "\x1b[1;35;40m" + "o" + "\x1b[0m"
+            return "\x1b[1;31;40m" + "o" + "\x1b[0m"
         else:
             return "\x1b[1;32;40m" + " " + "\x1b[0m"
 
@@ -625,8 +568,7 @@ def msg(gs):
         s, u = gs.get_genome_statistics(t)
         f, m = gs.get_genome_fitness(t)
         msg += t + ": Success: " + str(s) + " Unused: " + str(u) 
-        msg += " Fitness: " + "%.2f"%f
-        msg += " Max: " + str(m) + "\n"
+        msg += " Fitness: " + "%.2f"%f + " Max: " + str(m) + "\n"
         msg += "[ "
         p = prev_stats[t]
         for s in p[-10:]:
@@ -640,10 +582,8 @@ game_space_width = 30
 game_space_height = 15
 num_walls = 10
 num_agents = 10
-num_food = 5
-num_queens = 5
-max_episode_len = 50
-savedir = "coop_feed_save"
+max_episode_len = 100
+savedir = "predator_prey_food_save"
 if not os.path.exists(savedir):
     os.makedirs(savedir)
 
@@ -651,8 +591,6 @@ gs = game_space(game_space_width,
                 game_space_height,
                 num_walls=num_walls,
                 num_agents=num_agents,
-                num_food=num_food,
-                num_queens=num_queens,
                 max_episode_len=max_episode_len,
                 savedir=savedir)
 
@@ -680,18 +618,16 @@ while True:
         print(msg(gs))
         print(prev_train_msg)
         print()
-    if steps % int(gs.max_episode_len) == 0:
-        gs.spawn_more_berries()
+    if steps % int(gs.max_episode_len/2) == 0:
         for t in gs.agent_types:
             s0, u0 = gs.get_genome_statistics(t)
             if u0 < 70:
                 prev_train_msg = ""
                 for tt in gs.agent_types:
-                    f, m = gs.get_genome_fitness(tt)
+                    f, m = gs.get_genome_fitness(t)
                     prev_stats[tt].append(f)
                     with open(savedir + "/evolution_stats_"+tt+".json", "w") as f:
                         f.write(json.dumps(prev_stats[tt]))
                     prev_train_msg += gs.create_new_genome_pool(tt)
                     gs.save_genomes(tt)
     steps += 1
-
