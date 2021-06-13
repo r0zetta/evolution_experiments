@@ -270,6 +270,7 @@ class game_space:
 
     def move_agent(self, index, action, atype):
         done = False
+        died = False
         if action == 0: # do nothing
             pass
         else:
@@ -279,22 +280,32 @@ class game_space:
                 self.update_agent_success(atype, index)
             if atype == "predator":
                 if space_val >= self.starts["prey"] and space_val < self.food_id:
-                    self.agents[atype][index].fitness += 10
-                    self.update_agent_success(atype, index)
                     prey_index = self.get_prey_at_position(newx, newy)
-                    prey_fitness = self.agents["prey"][prey_index].fitness
-                    self.respawn_agent(prey_index, "prey")
+                    adjacent_prey = self.get_adjacent_friend_count(prey_index, "prey")
+                    # Adjacent prey lower the chance of capture
+                    # and increase the chance the predator will die instead
+                    deflect_chance = 0.3*adjacent_prey
+                    if random.random() > deflect_chance:
+                        self.respawn_agent(prey_index, "prey")
+                        self.agents[atype][index].fitness += 10
+                        self.update_agent_success(atype, index)
+                    else:
+                        died = True
+                        self.agents["prey"][prey_index].fitness += 10
+                        self.update_agent_success("prey", prey_index)
+                        self.respawn_agent(index, atype)
         state = self.get_agent_state(index, atype)
-        self.agents[atype][index].fitness += 1
         self.agents[atype][index].state = state
-        self.agents[atype][index].episode_steps += 1
-        ls = self.agents[atype][index].last_success
-        if ls is not None:
-            s = self.agents[atype][index].episode_steps
-            if (s - ls) > self.max_episode_len:
+        if died == False:
+            self.agents[atype][index].fitness += 1
+            self.agents[atype][index].episode_steps += 1
+            ls = self.agents[atype][index].last_success
+            if ls is not None:
+                s = self.agents[atype][index].episode_steps
+                if (s - ls) > self.max_episode_len:
+                    self.respawn_agent(index, atype)
+            elif self.agents[atype][index].episode_steps >= self.max_episode_len:
                 self.respawn_agent(index, atype)
-        elif self.agents[atype][index].episode_steps >= self.max_episode_len:
-            self.respawn_agent(index, atype)
 
 
     def get_prey_at_position(self, xpos, ypos):
@@ -317,16 +328,18 @@ class game_space:
         else:
             if tile >= self.starts["predator"] and tile < self.starts["prey"]:
                 return -1
-            elif tile == self.food_id:
-                return 2
-            else:
+            elif tile == 1:
                 return 1
+            elif tile >= self.starts["prey"] and tile < self.food_id:
+                return 2
+            elif tile == self.food_id:
+                return 3
 
     def distance(self, xa, ya, xb, yb):
         dst = distance.euclidean([xa, ya], [xb, yb])
         return dst
 
-    def get_offsets(self, xpos, ypos, positions, num):
+    def get_directions(self, xpos, ypos, positions, num):
         ind = {}
         for index, item in enumerate(positions):
             ey, ex = item
@@ -337,7 +350,7 @@ class game_space:
             nearest_indices.append(index)
             if len(nearest_indices) >= num:
                 break
-        offsets = []
+        directions = []
         for index in nearest_indices:
             item = positions[index]
             ey, ex = item
@@ -351,41 +364,51 @@ class game_space:
                 yoff = -1
             elif ey > ypos:
                 yoff = 1
-            offsets.append([xoff,yoff])
-        return offsets
+            directions.append([xoff,yoff])
+        return directions
 
-    def get_nearest_enemy_offsets(self, xpos, ypos, atype, num):
+    def get_nearest_enemy_directions(self, xpos, ypos, atype, num):
         sp = self.add_items_to_game_space()
         positions = []
         if atype == "predator":
             positions = np.argwhere((sp>=self.starts["prey"]) & (sp<self.food_id))
         else:
             positions = np.argwhere((sp>=self.starts["predator"]) & (sp<self.starts["prey"]))
-        offsets = self.get_offsets(xpos, ypos, positions, num)
+        offsets = self.get_directions(xpos, ypos, positions, num)
         return offsets
 
-    def get_nearest_food_offsets(self, xpos, ypos, num):
+    def get_nearest_friend_directions(self, xpos, ypos, atype, num):
+        sp = self.add_items_to_game_space()
+        positions = []
+        if atype == "prey":
+            positions = np.argwhere((sp>=self.starts["prey"]) & (sp<self.food_id))
+        else:
+            positions = np.argwhere((sp>=self.starts["predator"]) & (sp<self.starts["prey"]))
+        offsets = self.get_directions(xpos, ypos, positions, num)
+        return offsets
+
+    def get_nearest_food_directions(self, xpos, ypos, num):
         sp = self.add_items_to_game_space()
         positions = np.argwhere(sp==self.food_id)
-        offsets = self.get_offsets(xpos, ypos, positions, num)
+        offsets = self.get_directions(xpos, ypos, positions, num)
         return offsets
 
     def get_state_size(self):
-        state_size = 16
+        state_size = 32
         return state_size
 
-    def make_small_state(self, index, atype):
+    def add_directions_to_state(self, state, directions):
+        if directions is not None:
+            for item in directions:
+                yp, xp = item
+                state.append(xp)
+                state.append(yp)
+        return state
+
+    def get_adjacent_friend_count(self, index, atype):
+        space = self.add_items_to_game_space()
         xpos = self.agents[atype][index].xpos
         ypos = self.agents[atype][index].ypos
-        eoffsets = None
-        foffsets = None
-        if atype == "predator":
-            eoffsets = self.get_nearest_enemy_offsets(xpos, ypos, atype, 4)
-        else:
-            eoffsets = self.get_nearest_enemy_offsets(xpos, ypos, atype, 2)
-            foffsets = self.get_nearest_food_offsets(xpos, ypos, 2)
-
-        space = self.add_items_to_game_space()
         os = [-1, 0, 1]
         offsets = []
         for x in os:
@@ -393,19 +416,37 @@ class game_space:
                 if x == 0 and y == 0:
                     continue
                 offsets.append([x, y])
+        count = 0
+        for i in offsets:
+            oy, ox = i
+            tile = self.get_tile_val(space[ypos+oy][xpos+ox], atype)
+            if tile == 2:
+                count += 1
+        return count
 
+    def make_small_state(self, index, atype):
+        xpos = self.agents[atype][index].xpos
+        ypos = self.agents[atype][index].ypos
         tiles = []
-        if eoffsets is not None:
-            for item in eoffsets:
-                yp, xp = item
-                tiles.append(xp)
-                tiles.append(yp)
+        if atype == "predator":
+            directions = self.get_nearest_enemy_directions(xpos, ypos, atype, 4)
+            tiles = self.add_directions_to_state(tiles, directions)
+        else:
+            directions = self.get_nearest_enemy_directions(xpos, ypos, atype, 1)
+            tiles = self.add_directions_to_state(tiles, directions)
+            directions = self.get_nearest_food_directions(xpos, ypos, 1)
+            tiles = self.add_directions_to_state(tiles, directions)
+            directions = self.get_nearest_friend_directions(xpos, ypos, atype, 2)
+            tiles = self.add_directions_to_state(tiles, directions)
 
-        if foffsets is not None:
-            for item in foffsets:
-                yp, xp = item
-                tiles.append(xp)
-                tiles.append(yp)
+        space = self.add_items_to_game_space()
+        os = [-2, -1, 0, 1, 2]
+        offsets = []
+        for x in os:
+            for y in os:
+                if x == 0 and y == 0:
+                    continue
+                offsets.append([x, y])
 
         for i in offsets:
             oy, ox = i
@@ -651,12 +692,14 @@ class game_space:
 
 # Train the game
 def msg(gs):
+    colors = {"predator":"32;40", "prey":"35;40"}
     msg = "Steps: " + str(steps) + " Episode length: " + str(gs.max_episode_len) + "\n\n"
     for t in gs.agent_types:
         s, u = gs.get_genome_statistics(t)
         f, m = gs.get_genome_fitness(t)
         pf, pn = gs.get_best_policy_stats(t)
-        msg += t + ": Success: " + str(s) + " Unused: " + str(u) 
+        msg += "\x1b[1;"+colors[t]+"m"+t+"\x1b[0m"
+        msg += ": Success: " + str(s) + " Unused: " + str(u) 
         msg += " Fitness: " + "%.2f"%f + " Max: " + str(m) + "\n"
         msg += "Best policy fitness: " + "%.2f"%pf + " Num: " + str(pn) + "\n"
         msg += "[ "
@@ -672,7 +715,7 @@ game_space_width = 60
 game_space_height = 30
 num_walls = 40
 num_predators = 10
-num_prey = 40
+num_prey = 20
 num_food = 40
 max_episode_len = 50
 savedir = "predator_prey_food_save"
