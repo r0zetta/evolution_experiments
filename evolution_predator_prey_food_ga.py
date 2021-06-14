@@ -281,10 +281,12 @@ class game_space:
             if atype == "predator":
                 if space_val >= self.starts["prey"] and space_val < self.food_id:
                     prey_index = self.get_prey_at_position(newx, newy)
+                    adjacent_predator = self.get_adjacent_friend_count(index, atype)
                     adjacent_prey = self.get_adjacent_friend_count(prey_index, "prey")
                     # Adjacent prey lower the chance of capture
                     # and increase the chance the predator will die instead
-                    deflect_chance = 0.3*adjacent_prey
+                    # Adjacent predators negate prey deflect chance
+                    deflect_chance = (0.3*adjacent_prey) - (0.3*adjacent_predator)
                     if random.random() > deflect_chance:
                         self.respawn_agent(prey_index, "prey")
                         self.agents[atype][index].fitness += 10
@@ -320,22 +322,14 @@ class game_space:
     def get_tile_val(self, tile, atype):
         if tile == 0:
             return 0
-        if atype == "predator":
-            if tile == 1 or tile == self.food_id:
-                return 1
-            elif tile >= self.starts["predator"] and tile < self.starts["prey"]:
-                return 2
-            elif tile >= self.starts["prey"] and tile < self.food_id:
-                return 3
-        else:
-            if tile == 1:
-                return 1
-            elif tile >= self.starts["prey"] and tile < self.food_id:
-                return 2
-            elif tile == self.food_id:
-                return 3
-            elif tile >= self.starts["predator"] and tile < self.starts["prey"]:
-                return 4
+        if tile == 1:
+            return 1
+        elif tile >= self.starts["predator"] and tile < self.starts["prey"]:
+            return 2
+        elif tile >= self.starts["prey"] and tile < self.food_id:
+            return 3
+        elif tile == self.food_id:
+            return 4
 
     def distance(self, xa, ya, xb, yb):
         dst = distance.euclidean([xa, ya], [xb, yb])
@@ -414,7 +408,9 @@ class game_space:
         for i in offsets:
             oy, ox = i
             tile = self.get_tile_val(space[ypos+oy][xpos+ox], atype)
-            if tile == 2:
+            if atype == "predator" and tile == 2:
+                count += 1
+            if atype == "prey" and tile == 3:
                 count += 1
         return count
 
@@ -423,7 +419,9 @@ class game_space:
         ypos = self.agents[atype][index].ypos
         tiles = []
         if atype == "predator":
-            directions = self.get_nearest_enemy_directions(xpos, ypos, atype, 4)
+            directions = self.get_nearest_enemy_directions(xpos, ypos, atype, 2)
+            tiles = self.add_directions_to_state(tiles, directions)
+            directions = self.get_nearest_friend_directions(xpos, ypos, atype, 2)
             tiles = self.add_directions_to_state(tiles, directions)
         else:
             directions = self.get_nearest_enemy_directions(xpos, ypos, atype, 1)
@@ -687,7 +685,9 @@ class game_space:
 # Train the game
 def msg(gs):
     colors = {"predator":"32;40", "prey":"35;40"}
-    msg = "Steps: " + str(steps) + " Episode length: " + str(gs.max_episode_len) + "\n\n"
+    msg = "Steps: " + str(steps) + " Episode length: " + str(gs.max_episode_len) 
+    msg += " Genome size: " + str(gs.genome_size) 
+    msg += " Pool size: " + str(gs.pool_size) + "\n\n"
     for t in gs.agent_types:
         s, u = gs.get_genome_statistics(t)
         f, m = gs.get_genome_fitness(t)

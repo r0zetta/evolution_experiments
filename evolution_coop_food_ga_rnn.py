@@ -607,8 +607,8 @@ class game_space:
         threshold = 0.20
         fit_genomes = self.get_best_genomes(atype, threshold)
         best_policies = []
-        if len(self.best_policies[atype]) > 100:
-            best_policies = self.get_best_policies(atype, 100)
+        if len(self.best_policies[atype]) > 50:
+            best_policies = self.get_best_policies(atype, 50)
         msg += atype + ": Previous pool had " + str(len(fit_genomes)) + " fit genomes.\n"
         mutated_fit = []
         for item in fit_genomes:
@@ -725,7 +725,9 @@ class game_space:
 
 # Train the game
 def msg(gs):
-    msg = "Steps: " + str(steps) + " Episode length: " + str(gs.max_episode_len) + "\n\n"
+    msg = "Steps: " + str(steps) + " Episode length: " + str(gs.max_episode_len) 
+    msg += " Genome size: " + str(gs.genome_size) 
+    msg += " Pool size: " + str(gs.pool_size) + "\n\n"
     for t in gs.agent_types:
         s, u = gs.get_genome_statistics(t)
         f, m = gs.get_genome_fitness(t)
