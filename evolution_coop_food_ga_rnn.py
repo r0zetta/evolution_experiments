@@ -10,76 +10,114 @@ from torch.distributions import Categorical
 from scipy.spatial import distance
 
 class Net(nn.Module):
-    def __init__(self, state_size, action_size, hidden_size, fc1_weights, fc2_weights):
+    def __init__(self,  state_size,  action_size, frames, hidden, layers,
+                 lstm1_w, lstm2_w, fc_w):
         super(Net, self).__init__()
         self.state_size = state_size
         self.action_size = action_size
-        self.hidden_size = hidden_size
-        self.fc1 = nn.Linear(self.state_size, self.hidden_size, bias=False)
-        self.fc2 = nn.Linear(self.hidden_size, self.action_size, bias=False)
-        self.fc1.weight.data =  fc1_weights
-        self.fc2.weight.data =  fc2_weights
+        self.frames = frames
+        self.hidden = hidden
+        self.layers = layers
+        self.lstm = nn.LSTM(self.state_size,
+                            self.hidden,
+                            self.layers,
+                            bidirectional=False,
+                            bias=False)
 
-    def forward(self, x):
-        x = F.relu(self.fc1(x))
-        x = F.softmax(F.relu(self.fc2(x)))
-        return x
+        self.head = nn.Linear(self.hidden, self.action_size, bias=False)
+        self.lstm.weight_ih_l0.data = lstm1_w
+        self.lstm.weight_hh_l0.data = lstm2_w
+        self.head.weight.data = fc_w
 
-    def get_action(self, state):
+    def forward(self, state, hidden):
+        x, h = self.lstm(state, hidden)
+        x = x[:, -1]
+        x = F.softmax(self.head(x), dim=-1)
+        return x, h
+
+    def get_action(self, state, hidden):
         with torch.no_grad():
-            state = state.float()
-            ret = self.forward(Variable(state))
+            ret, h = self.forward(state, hidden)
             action = torch.argmax(ret)
-            return action
+            return action, h
 
 class GN_model:
-    def __init__(self, state_size, action_size, hidden_size, fc1_weights, fc2_weights):
-        self.policy = Net(state_size, action_size, hidden_size, fc1_weights, fc2_weights)
+    def __init__(self, state_size, action_size, frames, hidden, layers, lstm1_w, lstm2_w, fc_w):
+        self.policy = Net(state_size, action_size, frames, hidden,
+                          layers, lstm1_w, lstm2_w, fc_w)
+        self.h = (torch.randn(1, 1, hidden),
+                  torch.randn(1, 1, hidden))
 
     def get_action(self, state):
-        action = self.policy.get_action(state)
+        action, h = self.policy.get_action(state, self.h)
+        self.h = h
         return action
 
 
 class agent:
-    def __init__(self, x, y, state_size, action_size, hidden_size, genome, gi):
+    def __init__(self, x, y, state_size, action_size, frames, hidden, layers, genome, gi):
         self.xpos = x
         self.ypos = y
         self.fitness = 0
         self.gi = gi
-        fc1_weights = torch.Tensor(np.reshape(genome[:state_size*hidden_size],
-                                              (hidden_size, state_size)))
-        fc2_weights = torch.Tensor(np.reshape(genome[state_size*hidden_size:],
-                                              (action_size, hidden_size)))
-        self.model = GN_model(state_size, action_size, hidden_size, fc1_weights, fc2_weights)
+        fs = state_size*frames
+        ls = (fs * hidden)
+        fcs = action_size * hidden
+        genome_size = ls*2 + fcs
+        lstm1_w = torch.Tensor(np.reshape(genome[:ls], (fs, state_size)))
+        lstm2_w = torch.Tensor(np.reshape(genome[ls:ls*2], (fs, state_size)))
+        fc_w = torch.Tensor(np.reshape(genome[ls*2:], (action_size, hidden)))
+        self.model = GN_model(state_size, action_size, frames, hidden,
+                              layers, lstm1_w, lstm2_w, fc_w)
+        self.frames = frames
+        self.prev_states = deque()
         self.state = None
         self.episode_steps = 0
         self.last_success = None
+        self.holding_food = False
+        self.last_action = 0
 
     def get_action(self):
-        return self.model.get_action(self.state)
+        ps = []
+        for item in self.prev_states:
+            ps.append(np.array(item))
+        return self.model.get_action(torch.Tensor(ps))
+
+    def push_state(self, state):
+        self.prev_states.append(state)
+        if len(self.prev_states) > self.frames:
+            self.prev_states.popleft()
 
 class game_space:
-    def __init__(self, width, height, num_walls=0, num_predators=1, num_prey=1,
-                 num_food=10, max_episode_len=200, savedir="save"):
+    def __init__(self, width, height, frames=4, hidden=32, layers=1,
+                 num_walls=0, num_agents=1, num_food=1, num_queens=1,
+                 max_episode_len=200, savedir="save"):
         self.savedir = savedir
         self.max_episode_len = max_episode_len
+        self.num_agents = num_agents
         self.width = width+2
         self.height = height+2
-        self.start_walls = num_walls
-        self.action_size = 5
-        self.hidden_size = 32
-        self.pool_size = 1000
-        self.state_size = self.get_state_size()
-        self.genome_size = (self.state_size*self.hidden_size) + (self.action_size*self.hidden_size)
-        self.agent_types = ["predator", "prey"]
-        self.starts = {"predator":2, "prey":2000}
-        self.num_agents = {}
-        self.num_agents["predator"] = num_predators
-        self.num_agents["prey"] = num_prey
         self.num_food = num_food
+        self.num_queens = num_queens
+        self.berries = []
         self.food = []
+        self.queens = []
+        self.start_walls = num_walls
+        self.action_size = 6
+        self.frames = frames
+        self.hidden = hidden
+        self.layers = layers
+        self.pool_size = 2000
+        self.state_size = self.get_state_size()
+        fs = self.state_size*self.frames
+        ls = (fs * self.hidden)
+        fcs = self.action_size * self.hidden
+        self.genome_size = ls*2 + fcs
+        self.agent_types = ["picker", "feeder"]
+        self.starts = {"picker":2, "feeder":2000}
         self.food_id = 10000
+        self.queen_id = 20000
+        self.berry_id = 30000
         self.genome_pool = {}
         self.best_policies = {}
         for t in self.agent_types:
@@ -100,22 +138,25 @@ class game_space:
         self.agents = {}
         for t in self.agent_types:
             self.agents[t] = []
-            for index in range(self.num_agents[t]):
+            for index in range(self.num_agents):
                 self.agents[t].append(None)
         self.walls = []
         space = self.make_empty_game_space()
         self.game_space = space
         self.add_walls(self.start_walls)
         self.num_walls = len(self.walls)
-        self.add_food()
         self.initial_game_space = np.array(self.game_space)
+        self.make_food()
+        self.make_queens()
+        self.make_berries()
         for t in self.agent_types:
             for index, agent in enumerate(self.agents[t]):
                 self.create_new_agent(index, t)
         for t in self.agent_types:
             for index, agent in enumerate(self.agents[t]):
                 state = self.get_agent_state(index, t)
-                self.agents[t][index].state = state
+                for _ in range(self.frames):
+                    self.agents[t][index].push_state(state)
 
     def step(self):
         for t in self.agent_types:
@@ -137,6 +178,27 @@ class game_space:
             space[n][self.width-2] = 1
         return space
 
+    def make_food(self):
+        self.food = []
+        locations = self.get_random_empty_space(self.num_food)
+        for item in locations:
+            y, x = item
+            self.food.append([y, x])
+
+    def make_queens(self):
+        self.queens = []
+        locations = self.get_random_empty_space(self.num_queens)
+        for item in locations:
+            y, x = item
+            self.queens.append([y, x])
+
+    def make_berries(self):
+        self.berries = []
+        locations = self.get_random_empty_space(self.num_queens)
+        for item in locations:
+            y, x = item
+            self.berries.append([y, x])
+
     def add_blocks(self, num):
         locations = self.get_random_empty_space(num)
         for item in locations:
@@ -144,30 +206,6 @@ class game_space:
             self.game_space[y][x] = 1
             self.walls.append([y, x])
         self.num_walls = len(self.walls)
-
-    def add_food(self):
-        locations = self.get_random_empty_space(self.num_food)
-        for item in locations:
-            y, x = item
-            self.food.append([y, x])
-
-    def remove_food(self, xpos, ypos):
-        fi = None
-        for index, item in enumerate(self.food):
-            y, x = item
-            if x == xpos and y == ypos:
-                fi = index
-        if fi is not None:
-            del self.food[fi]
-
-    def spawn_more_food(self):
-        nf = len(self.food)
-        if nf < self.num_food:
-            mf = self.num_food - nf
-            locs = self.get_random_empty_space(mf)
-            for loc in locs:
-                y, x = loc
-                self.food.append([y, x])
 
     def add_walls(self, num):
         added = 0
@@ -197,7 +235,6 @@ class game_space:
         item = self.get_random_empty_space(1)
         ypos, xpos = item[0]
         state_size = self.get_state_size()
-        action_size = self.action_size
 
         selectable = []
         for i, item in enumerate(self.genome_pool[atype]):
@@ -208,8 +245,9 @@ class game_space:
         item = self.genome_pool[atype][gi]
         genome, fitness = item
 
-        self.agents[atype][index] = agent(xpos, ypos, state_size, action_size,
-                                          self.hidden_size, genome, gi)
+        self.agents[atype][index] = agent(xpos, ypos, state_size, self.action_size,
+                                          self.frames, self.hidden, self.layers,
+                                          genome, gi)
 
     def add_items_to_game_space(self):
         space = np.array(self.game_space)
@@ -218,9 +256,15 @@ class game_space:
                 for index, agent in enumerate(self.agents[t]):
                     if agent is not None:
                         space[agent.ypos][agent.xpos] = self.starts[t]+index
-        for f in self.food:
-            y, x = f
+        for item in self.queens:
+            y, x = item
+            space[y][x] = self.queen_id
+        for item in self.food:
+            y, x = item
             space[y][x] = self.food_id
+        for item in self.berries:
+            y, x = item
+            space[y][x] = self.berry_id
         return space
 
     def get_random_empty_space(self, num=1):
@@ -236,12 +280,50 @@ class game_space:
         self.genome_pool[atype][gi] = [genome, fitness]
         self.create_new_agent(index, atype)
         state = self.get_agent_state(index, atype)
-        self.agents[atype][index].state = state
+        for _ in range(self.frames):
+            self.agents[atype][index].push_state(state)
+
+    def spawn_more_berries(self):
+        num_berries = len(self.berries)
+        if num_berries < 10:
+            new_berries = 10-num_berries
+            positions = self.get_random_empty_space(new_berries)
+            for p in positions:
+                y, x = p
+                self.add_berry(x, y)
+
+    def add_berry(self, xpos, ypos):
+        self.berries.append([ypos, xpos])
+
+    def remove_berry(self, xpos, ypos):
+        bi = None
+        for index, item in enumerate(self.berries):
+            y, x = item
+            if y == ypos and x == xpos:
+                bi = index
+                break
+        del self.berries[bi]
+
+    def get_space_val_in_direction(self, xpos, ypos, action):
+        newx = xpos
+        newy = ypos
+        if action == 1: # moving up
+            newy = ypos-1
+        elif action == 2: # moving right
+            newx = xpos+1
+        elif action == 3: # moving down
+            newy = ypos+1
+        elif action == 4: # moving left
+            newx = xpos-1
+        space = self.add_items_to_game_space()
+        space_val = space[newy][newx]
+        return space_val
 
     def move_forward(self, index, action, atype):
-        got_food = False
         xpos = self.agents[atype][index].xpos
         ypos = self.agents[atype][index].ypos
+        holding = self.agents[atype][index].holding_food
+        got_food = False
         newx = xpos
         newy = ypos
         if action == 1: # moving up
@@ -257,59 +339,66 @@ class game_space:
         if space_val == 0: # empty space, move forward
             self.agents[atype][index].xpos = newx
             self.agents[atype][index].ypos = newy
-        if atype == "prey":
-            if space_val == self.food_id:
+        if atype == "feeder":
+            if space_val == self.berry_id and holding == False:
+                self.agents[atype][index].xpos = newx
+                self.agents[atype][index].ypos = newy
+                self.agents[atype][index].holding_food = True
+                self.remove_berry(newx, newy)
                 got_food = True
-                self.remove_food(newx, newy)
-                self.spawn_more_food()
         return newx, newy, space_val, got_food
 
-    def update_agent_success(self, atype, index):
+    def update_success_step(self, index, atype):
         s = self.agents[atype][index].episode_steps
         self.agents[atype][index].last_success = s
 
     def move_agent(self, index, action, atype):
         done = False
-        died = False
+        holding = self.agents[atype][index].holding_food
         if action == 0: # do nothing
             pass
-        else:
+        elif action in [1, 2, 3, 4]:
             newx, newy, space_val, got_food = self.move_forward(index, action, atype)
-            if got_food == True:
-                self.agents[atype][index].fitness += 10
-                self.update_agent_success(atype, index)
-            if atype == "predator":
-                if space_val >= self.starts["prey"] and space_val < self.food_id:
-                    prey_index = self.get_prey_at_position(newx, newy)
-                    adjacent_prey = self.get_adjacent_friend_count(prey_index, "prey")
-                    # Adjacent prey lower the chance of capture
-                    # and increase the chance the predator will die instead
-                    deflect_chance = 0.3*adjacent_prey
-                    if random.random() > deflect_chance:
-                        self.respawn_agent(prey_index, "prey")
+            if space_val == self.food_id:
+                if atype == "picker" and holding == False:
+                    self.agents[atype][index].holding_food = True
+            if space_val == self.queen_id:
+                if atype == "feeder" and holding == True:
+                    self.agents[atype][index].fitness += 10
+                    self.update_success_step(index, atype)
+                    self.agents[atype][index].holding_food = False
+        else: # drop berry
+            if atype == "picker":
+                if holding == True:
+                    xpos = self.agents[atype][index].xpos
+                    ypos = self.agents[atype][index].ypos
+                    last_action = self.agents[atype][index].last_action
+                    if last_action < 1:
+                        last_action = 1
+                    sv = self.get_space_val_in_direction(xpos, ypos, last_action)
+                    if sv == 0:
+                        self.agents[atype][index].holding_food = False
+                        self.add_berry(xpos, ypos)
                         self.agents[atype][index].fitness += 10
-                        self.update_agent_success(atype, index)
-                    else:
-                        died = True
-                        self.agents["prey"][prey_index].fitness += 10
-                        self.update_agent_success("prey", prey_index)
-                        self.respawn_agent(index, atype)
+                        self.update_success_step(index, atype)
+
+        if action in [1, 2, 3, 4]:
+            self.agents[atype][index].last_action = action
+        self.agents[atype][index].fitness += 1
         state = self.get_agent_state(index, atype)
         self.agents[atype][index].state = state
-        if died == False:
-            self.agents[atype][index].fitness += 1
-            self.agents[atype][index].episode_steps += 1
-            ls = self.agents[atype][index].last_success
-            if ls is not None:
-                s = self.agents[atype][index].episode_steps
-                if (s - ls) > self.max_episode_len:
-                    self.respawn_agent(index, atype)
-            elif self.agents[atype][index].episode_steps >= self.max_episode_len:
+        self.agents[atype][index].episode_steps += 1
+        ls = self.agents[atype][index].last_success
+        if ls is not None:
+            s = self.agents[atype][index].episode_steps
+            if (s - ls) > self.max_episode_len:
                 self.respawn_agent(index, atype)
+        elif self.agents[atype][index].episode_steps >= self.max_episode_len:
+            self.respawn_agent(index, atype)
 
 
-    def get_prey_at_position(self, xpos, ypos):
-        for index, agent in enumerate(self.agents["prey"]):
+    def get_agent_at_position(self, xpos, ypos, atype):
+        for index, agent in enumerate(self.agents[atype]):
             if agent.xpos == xpos and agent.ypos == ypos:
                 return index
         return None
@@ -320,118 +409,55 @@ class game_space:
     def get_tile_val(self, tile, atype):
         if tile == 0:
             return 0
-        if atype == "predator":
-            if tile == 1 or tile == self.food_id:
-                return 1
-            elif tile >= self.starts["predator"] and tile < self.starts["prey"]:
-                return 2
-            elif tile >= self.starts["prey"] and tile < self.food_id:
-                return 3
-        else:
-            if tile == 1:
-                return 1
-            elif tile >= self.starts["prey"] and tile < self.food_id:
-                return 2
-            elif tile == self.food_id:
-                return 3
-            elif tile >= self.starts["predator"] and tile < self.starts["prey"]:
-                return 4
+        if tile == 1:
+            return 1
+        if tile >= self.starts["picker"] and tile < self.starts["feeder"]:
+            return 2
+        if tile >= self.starts["feeder"] and tile < self.food_id:
+            return 3
+        if tile == self.food_id:
+            return 4
+        if tile == self.queen_id:
+            return 5
+        if tile == self.berry_id:
+            return 6
 
     def distance(self, xa, ya, xb, yb):
         dst = distance.euclidean([xa, ya], [xb, yb])
         return dst
 
-    def get_directions(self, xpos, ypos, positions, num):
+    def get_nearest_obj_offset(self, xpos, ypos, itemid):
+        sp = self.add_items_to_game_space()
+        obj_positions = np.argwhere(sp==itemid)
+        if len(obj_positions) < 1:
+            return 0,0
         ind = {}
-        for index, item in enumerate(positions):
+        for index, item in enumerate(obj_positions):
             ey, ex = item
             dist = self.distance(ex, ey, xpos, ypos)
             ind[index] = dist
-        nearest_indices = []
+        nearest_index = None
         for index, dist in sorted(ind.items(), key=operator.itemgetter(1),reverse=False):
-            nearest_indices.append(index)
-            if len(nearest_indices) >= num:
-                break
-        directions = []
-        for index in nearest_indices:
-            item = positions[index]
-            ey, ex = item
-            xoff = ex-xpos
-            yoff = ey-ypos
-            directions.append([xoff,yoff])
-        return directions
-
-    def get_nearest_enemy_directions(self, xpos, ypos, atype, num):
-        sp = self.add_items_to_game_space()
-        positions = []
-        if atype == "predator":
-            positions = np.argwhere((sp>=self.starts["prey"]) & (sp<self.food_id))
-        else:
-            positions = np.argwhere((sp>=self.starts["predator"]) & (sp<self.starts["prey"]))
-        offsets = self.get_directions(xpos, ypos, positions, num)
-        return offsets
-
-    def get_nearest_friend_directions(self, xpos, ypos, atype, num):
-        sp = self.add_items_to_game_space()
-        positions = []
-        if atype == "prey":
-            positions = np.argwhere((sp>=self.starts["prey"]) & (sp<self.food_id))
-        else:
-            positions = np.argwhere((sp>=self.starts["predator"]) & (sp<self.starts["prey"]))
-        offsets = self.get_directions(xpos, ypos, positions, num)
-        return offsets
-
-    def get_nearest_food_directions(self, xpos, ypos, num):
-        sp = self.add_items_to_game_space()
-        positions = np.argwhere(sp==self.food_id)
-        offsets = self.get_directions(xpos, ypos, positions, num)
-        return offsets
+            nearest_index = index
+            break
+        item = obj_positions[nearest_index]
+        ey, ex = item
+        xoff = ex - xpos
+        yoff = ey - ypos
+        return xoff, yoff
 
     def get_state_size(self):
         state_size = 32
         return state_size
 
-    def add_directions_to_state(self, state, directions):
-        if directions is not None:
-            for item in directions:
-                yp, xp = item
-                state.append(xp)
-                state.append(yp)
-        return state
-
-    def get_adjacent_friend_count(self, index, atype):
-        space = self.add_items_to_game_space()
-        xpos = self.agents[atype][index].xpos
-        ypos = self.agents[atype][index].ypos
-        os = [-1, 0, 1]
-        offsets = []
-        for x in os:
-            for y in os:
-                if x == 0 and y == 0:
-                    continue
-                offsets.append([x, y])
-        count = 0
-        for i in offsets:
-            oy, ox = i
-            tile = self.get_tile_val(space[ypos+oy][xpos+ox], atype)
-            if tile == 2:
-                count += 1
-        return count
-
     def make_small_state(self, index, atype):
         xpos = self.agents[atype][index].xpos
         ypos = self.agents[atype][index].ypos
-        tiles = []
-        if atype == "predator":
-            directions = self.get_nearest_enemy_directions(xpos, ypos, atype, 4)
-            tiles = self.add_directions_to_state(tiles, directions)
-        else:
-            directions = self.get_nearest_enemy_directions(xpos, ypos, atype, 1)
-            tiles = self.add_directions_to_state(tiles, directions)
-            directions = self.get_nearest_food_directions(xpos, ypos, 1)
-            tiles = self.add_directions_to_state(tiles, directions)
-            directions = self.get_nearest_friend_directions(xpos, ypos, atype, 2)
-            tiles = self.add_directions_to_state(tiles, directions)
+        holding = int(self.agents[atype][index].holding_food)
+        la = self.agents[atype][index].last_action
+        fx, fy = self.get_nearest_obj_offset(xpos, ypos, self.food_id)
+        bx, by = self.get_nearest_obj_offset(xpos, ypos, self.berry_id)
+        qx, qy = self.get_nearest_obj_offset(xpos, ypos, self.queen_id)
 
         space = self.add_items_to_game_space()
         os = [-2, -1, 0, 1, 2]
@@ -442,6 +468,7 @@ class game_space:
                     continue
                 offsets.append([x, y])
 
+        tiles = [la, holding, fx, fy, bx, by, qx, qy]
         for i in offsets:
             oy, ox = i
             tile = self.get_tile_val(space[ypos+oy][xpos+ox], atype)
@@ -559,8 +586,9 @@ class game_space:
             fit_genomes.append(genome)
             self.add_best_fitness_entry(atype, genome, fitness)
             count += 1
-            if count > int(len(vi) * threshold):
-                break
+            if len(vi) > 50:
+                if count > int(len(vi) * threshold):
+                    break
         return fit_genomes
 
     def create_new_genome_pool(self, atype):
@@ -576,23 +604,26 @@ class game_space:
         threshold = 0.20
         fit_genomes = self.get_best_genomes(atype, threshold)
         best_policies = []
-        if len(self.best_policies[atype]) > 50:
-            best_policies = self.get_best_policies(atype, 50)
+        if len(self.best_policies[atype]) > 100:
+            best_policies = self.get_best_policies(atype, 100)
         msg += atype + ": Previous pool had " + str(len(fit_genomes)) + " fit genomes.\n"
         mutated_fit = []
         for item in fit_genomes:
-            mutated_fit.extend(self.mutate_genome(item, 3))
+            if len(fit_genomes) > 10:
+                mutated_fit.extend(self.mutate_genome(item, 3))
+            else:
+                mutated_fit.extend(self.mutate_genome(item, 10))
         msg += "New genomes from mutations: " + str(len(mutated_fit)) + "\n"
         # Select pairs to reproduce and mutate
         repr_genomes = []
-        if len(fit_genomes) > 2:
+        if len(fit_genomes) > 1:
             num_pairs = min(int(self.pool_size/50), int(len(fit_genomes)))
             for _ in range(num_pairs):
                 g1, g2 = random.sample(fit_genomes, 2)
-                offspring = (self.reproduce_genome(g1, g2, 3))
+                offspring = (self.reproduce_genome(g1, g2, 4))
                 repr_genomes.extend(offspring)
                 for item in offspring:
-                    repr_genomes.extend(self.mutate_genome(item, 3))
+                    repr_genomes.extend(self.mutate_genome(item, 5))
         msg += "New genomes from reproduction: " + str(len(repr_genomes)) + "\n"
         new_genomes.extend(fit_genomes)
         new_genomes.extend(best_policies)
@@ -662,15 +693,20 @@ class game_space:
 
 
 
+
     def get_printable(self, item):
         if item == 1:
             return "\x1b[1;37;40m" + "░" + "\x1b[0m"
-        elif item >= self.starts["predator"] and item < self.starts["prey"]:
+        elif item >= self.starts["picker"] and item < self.starts["feeder"]:
             return "\x1b[1;32;40m" + "x" + "\x1b[0m"
-        elif item >= self.starts["prey"] and item < self.food_id:
-            return "\x1b[1;35;40m" + "x" + "\x1b[0m"
+        elif item >= self.starts["feeder"] and item < self.food_id:
+            return "\x1b[1;33;40m" + "x" + "\x1b[0m"
         elif item == self.food_id:
-            return "\x1b[1;31;40m" + "o" + "\x1b[0m"
+            return "\x1b[1;31;40m" + "¥" + "\x1b[0m"
+        elif item == self.queen_id:
+            return "\x1b[1;36;40m" + "O" + "\x1b[0m"
+        elif item == self.berry_id:
+            return "\x1b[1;35;40m" + "o" + "\x1b[0m"
         else:
             return "\x1b[1;32;40m" + " " + "\x1b[0m"
 
@@ -686,14 +722,12 @@ class game_space:
 
 # Train the game
 def msg(gs):
-    colors = {"predator":"32;40", "prey":"35;40"}
     msg = "Steps: " + str(steps) + " Episode length: " + str(gs.max_episode_len) + "\n\n"
     for t in gs.agent_types:
         s, u = gs.get_genome_statistics(t)
         f, m = gs.get_genome_fitness(t)
         pf, pn = gs.get_best_policy_stats(t)
-        msg += "\x1b[1;"+colors[t]+"m"+t+"\x1b[0m"
-        msg += ": Success: " + str(s) + " Unused: " + str(u) 
+        msg += t + ": Success: " + str(s) + " Unused: " + str(u) 
         msg += " Fitness: " + "%.2f"%f + " Max: " + str(m) + "\n"
         msg += "Best policy fitness: " + "%.2f"%pf + " Num: " + str(pn) + "\n"
         msg += "[ "
@@ -705,23 +739,29 @@ def msg(gs):
 
 random.seed(1337)
 
-game_space_width = 60
-game_space_height = 30
-num_walls = 40
-num_predators = 4
-num_prey = 40
-num_food = 50
+game_space_width = 30
+game_space_height = 15
+num_walls = 20
+num_agents = 10
+num_food = 10
+num_queens = 10
 max_episode_len = 50
-savedir = "predator_prey_food_save"
+hidden = 32
+frames = 4
+layers=1
+savedir = "coop_feed_rnn_save"
 if not os.path.exists(savedir):
     os.makedirs(savedir)
 
 gs = game_space(game_space_width,
                 game_space_height,
+                frames=frames,
+                hidden=hidden,
+                layers=layers,
                 num_walls=num_walls,
-                num_predators=num_predators,
-                num_prey=num_prey,
+                num_agents=num_agents,
                 num_food=num_food,
+                num_queens=num_queens,
                 max_episode_len=max_episode_len,
                 savedir=savedir)
 
@@ -749,7 +789,8 @@ while True:
         print(msg(gs))
         print(prev_train_msg)
         print()
-    if steps % int(gs.max_episode_len/2) == 0:
+    if steps % int(gs.max_episode_len) == 0:
+        gs.spawn_more_berries()
         for t in gs.agent_types:
             s0, u0 = gs.get_genome_statistics(t)
             if u0 < 70:
@@ -763,3 +804,4 @@ while True:
                     gs.save_genomes(tt)
                     gs.save_best_policies(tt)
     steps += 1
+
