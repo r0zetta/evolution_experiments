@@ -81,6 +81,9 @@ class agent:
         ps = []
         for item in self.prev_states:
             ps.append(np.array(item))
+        if len(ps) != self.frames:
+            print("ERROR!")
+            sys.exit(0)
         return self.model.get_action(torch.Tensor(ps))
 
     def push_state(self, state):
@@ -386,7 +389,7 @@ class game_space:
             self.agents[atype][index].last_action = action
         self.agents[atype][index].fitness += 1
         state = self.get_agent_state(index, atype)
-        self.agents[atype][index].state = state
+        self.agents[atype][index].push_state(state)
         self.agents[atype][index].episode_steps += 1
         ls = self.agents[atype][index].last_success
         if ls is not None:
