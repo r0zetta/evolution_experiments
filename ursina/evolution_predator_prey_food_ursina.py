@@ -56,6 +56,7 @@ class Agent:
         self.state = None
         self.episode_steps = 0
         self.last_success = None
+        self.direction = 0
         self.entity = None
 
     def get_action(self):
@@ -69,7 +70,7 @@ class Food:
 
 class game_space:
     def __init__(self, width, height, num_walls=0, num_predators=1, num_prey=1,
-                 num_food=10, max_episode_len=200, scaling=1, visuals=False, savedir="save"):
+                 num_food=10, max_episode_len=200, scaling=10, visuals=False, savedir="save"):
         self.steps = 0
         self.scaling = scaling
         self.visuals = visuals
@@ -84,7 +85,7 @@ class game_space:
         self.state_size = self.get_state_size()
         self.genome_size = (self.state_size*self.hidden_size) + (self.action_size*self.hidden_size)
         self.agent_types = ["predator", "prey"]
-        self.textures = {"predator":"marblepurple", "prey":"marbleblue"}
+        self.textures = {"predator":"hog", "prey":"yak"}
         self.starts = {"predator":2, "prey":2000}
         self.num_agents = {}
         self.num_agents["predator"] = num_predators
@@ -193,11 +194,12 @@ class game_space:
                 f = Food(xgrid, ygrid)
                 if self.visuals == True:
                     xabs, yabs = self.grid_coords_to_abs(xgrid, ygrid)
-                    f.entity = Entity(model='sphere',
+                    s = self.scaling * 1
+                    f.entity = Entity(model='cube',
                                       color=color.white,
-                                      scale=(s,s,s),
+                                      scale=(s,s,0),
                                       position = (xabs, yabs, (-1*self.scaling)),
-                                      texture="circuitry")
+                                      texture="veg")
                 self.food.append(f)
 
     def add_walls(self, num):
@@ -324,6 +326,7 @@ class game_space:
             pass
         else:
             newx, newy, space_val, got_food = self.move_forward(index, action, atype)
+            self.agents[atype][index].direction = action
             if got_food == True:
                 self.agents[atype][index].fitness += 10
                 self.update_agent_success(atype, index)
@@ -745,6 +748,17 @@ def update():
                 xabs = gs.agents[t][index].xpos
                 yabs = gs.agents[t][index].ypos
                 gs.agents[t][index].entity.position = (xabs, yabs, (-1*gs.scaling))
+            d = gs.agents[t][index].direction
+            """
+            if d == 1:
+                gs.agents[t][index].entity.rotation_x += time.dt * 300
+            elif d == 3:
+                gs.agents[t][index].entity.rotation_x -= time.dt * 300
+            elif d == 2:
+                gs.agents[t][index].entity.rotation_y += time.dt * 300
+            elif d == 4:
+                gs.agents[t][index].entity.rotation_y -= time.dt * 300
+            """
     # Update food
 
 # Train the game
@@ -770,14 +784,14 @@ def msg(gs):
 
 random.seed(1337)
 
-print_visuals = False
-scaling = 5
-game_space_width = 30
-game_space_height = 30
-num_walls = 40
-num_predators = 12
-num_prey = 40
-num_food = 50
+print_visuals = True
+scaling = 3
+game_space_width = 20
+game_space_height = 20
+num_walls = 0
+num_predators = 6
+num_prey = 20
+num_food = 20
 max_episode_len = 50 * scaling
 savedir = "predator_prey_food_save"
 if not os.path.exists(savedir):
@@ -816,37 +830,38 @@ if print_visuals == True:
             if item == 1:
                 cube = Entity(model='cube',
                               color=color.gray,
-                              scale=(s,s,s),
-                              position = (x, y, -10),
-                              texture='wall')
+                              scale=(s,s,0),
+                              position = (x, y, (-1*gs.scaling)),
+                              texture='rock')
             cube = Entity(model='cube',
-                          color=color.black,
+                          color=color.white,
                           scale=(s,s,s),
-                          position = (x, y, 0))
+                          position = (x, y, 0),
+                          texture='soil')
 
     for t in gs.agent_types:
         for index, agent in enumerate(gs.agents[t]):
             xabs = gs.agents[t][index].xpos
             yabs = gs.agents[t][index].ypos
-            s = gs.scaling * 0.5
+            s = gs.scaling * 1
             texture = gs.textures[t]
-            gs.agents[t][index].entity = Entity(model='sphere',
+            gs.agents[t][index].entity = Entity(model='cube',
                                                 color=color.white,
-                                                scale=(s,s,s),
+                                                scale=(s,s,0),
                                                 position = (xabs, yabs, (-1*gs.scaling)),
                                                 texture=texture)
     for index, f in enumerate(gs.food):
         xpos = f.xpos
         ypos = f.ypos
         x, y = gs.grid_coords_to_abs(xpos, ypos)
-        s = gs.scaling * 0.5
-        gs.food[index].entity = Entity(model='sphere',
+        s = gs.scaling * 1
+        gs.food[index].entity = Entity(model='cube',
                                        color=color.white,
-                                       scale=(s,s,s),
+                                       scale=(s,s,0),
                                        position = (x, y, (-1*gs.scaling)),
-                                       texture="circuitry")
+                                       texture="veg")
 
-    camera.position -= (0, 0, 70*gs.scaling)
+    camera.position -= (0, 0, 50*gs.scaling)
     #camera.position = (0, (-45*gs.scaling), (-40*gs.scaling))
     #camera.rotation = (-47, 0, 0)
     app.run()
