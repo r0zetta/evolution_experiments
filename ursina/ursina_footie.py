@@ -151,8 +151,8 @@ def ball_collision():
     ut1 = int(round(scaling/2))
     for index, dude in enumerate(dudes):
         dx, dy = dude_abs_positions[index]
-        ox = b.x - dx
-        oy = b.y - dy
+        ox = dx - b.x
+        oy = dy - b.y
         hd = None
         if (ox > lt and ox < ut) and (oy > lt and oy < ut):
             if oy < lt1 and oy > lt:

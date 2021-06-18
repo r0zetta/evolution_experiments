@@ -265,8 +265,8 @@ class game_space:
             for index in range(len(self.agents[t])):
                 dx = self.agents[t][index].xpos
                 dy = self.agents[t][index].ypos
-                ox = self.ball.x - dx
-                oy = self.ball.y - dy
+                ox = dx - self.ball.x
+                oy = dy - self.ball.y
                 hd = None
                 if (ox > lt and ox < ut) and (oy > lt and oy < ut):
                     if oy < lt1 and oy > lt:
