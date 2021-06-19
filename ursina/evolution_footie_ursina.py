@@ -80,7 +80,7 @@ class Ball:
         self.direction = 0
         self.speed = 0
         self.friction = 0.95
-        self.hit_speed = 3
+        self.hit_speed = 2
         self.hit_cooldown = 0
         self.entity = None
 
@@ -100,8 +100,8 @@ class game_space:
         self.left = -1 * self.right
         print(self.top, self.bottom, self.left, self.right)
         self.action_size = 9
-        self.hidden_size = 32
-        self.pool_size = 500
+        self.hidden_size = 16
+        self.pool_size = 1000
         self.state_size = self.get_state_size()
         self.genome_size = (self.state_size*self.hidden_size) + (self.action_size*self.hidden_size)
         self.agent_types = ["pigs", "sheep"]
@@ -311,8 +311,6 @@ class game_space:
                 self.ball.direction = random.choice(hit_directions)
                 if len(who_hit) > 0:
                     self.ball.speed = self.ball.hit_speed
-                elif self.ball.speed < 0.0001:
-                    self.ball.speed = self.ball.hit_speed
                 self.ball.hit_cooldown = 5
         # Move ball
         self.ball.x, self.ball.y = self.move_item(self.ball.x,
@@ -327,29 +325,37 @@ class game_space:
             self.ball.hit_cooldown = 0
         return who_hit
 
+    def get_direction_mods(self, direction):
+        modx = 0
+        mody = 0
+        if direction == UP:
+            mody = -1
+        elif direction == UP_RIGHT:
+            mody = -1
+            modx = 1
+        elif direction == RIGHT:
+            modx = 1
+        elif direction == DOWN_RIGHT:
+            mody = 1
+            modx = 1
+        elif direction == DOWN:
+            mody = 1
+        elif direction == DOWN_LEFT:
+            mody = 1
+            modx = -1
+        elif direction == LEFT:
+            modx = -1
+        elif direction == UP_LEFT:
+            mody = -1
+            modx = -1
+        return modx, mody
+
     def move_item(self, x, y, direction, speed):
         nx = x
         ny = y
-        if direction == UP:
-            ny = ny-speed
-        elif direction == UP_RIGHT:
-            ny = ny-speed
-            nx = nx+speed
-        elif direction == RIGHT:
-            nx = nx+speed
-        elif direction == DOWN_RIGHT:
-            nx = nx+speed
-            ny = ny+speed
-        elif direction == DOWN:
-            ny = ny+speed
-        elif direction == DOWN_LEFT:
-            ny = ny+speed
-            nx = nx-speed
-        elif direction == LEFT:
-            nx = nx-speed
-        elif direction == UP_LEFT:
-            ny = ny-speed
-            nx = nx-speed
+        modx, mody = self.get_direction_mods(direction)
+        ny = ny + (mody*speed)
+        nx = nx + (modx*speed)
         if nx < self.left:
             nx = self.left
         if nx > self.right:
@@ -396,7 +402,15 @@ class game_space:
             item = positions[index]
             ey, ex = item
             xoff = ex-xpos
+            if xoff > 0:
+                xoff = 1
+            if xoff < 0:
+                xoff = -1
             yoff = ey-ypos
+            if yoff > 0:
+                yoff = 1
+            if yoff < 0:
+                yoff = -1
             directions.append([xoff,yoff])
         return directions
 
@@ -419,7 +433,7 @@ class game_space:
         return state
 
     def get_state_size(self):
-        state_size = 20
+        state_size = 13
         return state_size
 
     def get_agent_state(self, index, atype):
@@ -428,13 +442,14 @@ class game_space:
             ot = "sheep"
         xabs = self.agents[atype][index].xpos
         yabs = self.agents[atype][index].ypos
-        state = [self.ball.direction, self.ball.speed]
+        modx, mody = self.get_direction_mods(self.ball.direction)
+        state = [modx, mody, self.ball.speed]
         # Get direction of ball
         self.add_directions_to_state(state, self.get_ball_direction(xabs, yabs))
         # Get directions of 4 closest team mates
-        self.add_directions_to_state(state, self.get_team_directions(xabs, yabs, atype, 4))
+        self.add_directions_to_state(state, self.get_team_directions(xabs, yabs, atype, 2))
         # Get directions of 4 closest opposing team players
-        self.add_directions_to_state(state, self.get_team_directions(xabs, yabs, ot, 4))
+        self.add_directions_to_state(state, self.get_team_directions(xabs, yabs, ot, 2))
         state = np.array(state)
         state = torch.FloatTensor(state)
         state = state.unsqueeze(0)
@@ -461,7 +476,7 @@ class game_space:
     def mutate_genome(self, g, num_mutations):
         new_genomes = []
         for _ in range(num_mutations):
-            n = int(0.001 * len(g))
+            n = int(0.05 * len(g))
             indices = random.sample(range(len(g)), n)
             gm = g
             for index in indices:
@@ -561,15 +576,17 @@ class game_space:
             genome, fitness = item
             if fitness is None:
                 new_genomes.append(genome)
-        threshold = 0.20
+        threshold = 0.30
         fit_genomes = self.get_best_genomes(atype, threshold)
         best_policies = []
-        if len(self.best_policies[atype]) > 50:
-            best_policies = self.get_best_policies(atype, 50)
+        if len(self.best_policies[atype]) > 20:
+            best_policies = self.get_best_policies(atype, 20)
         msg += atype + ": Previous pool had " + str(len(fit_genomes)) + " fit genomes.\n"
         mutated_fit = []
         for item in fit_genomes:
-            mutated_fit.extend(self.mutate_genome(item, 3))
+            mutated_fit.extend(self.mutate_genome(item, 4))
+        for item in best_policies:
+            mutated_fit.extend(self.mutate_genome(item, 4))
         msg += "New genomes from mutations: " + str(len(mutated_fit)) + "\n"
         # Select pairs to reproduce and mutate
         repr_genomes = []
@@ -577,10 +594,10 @@ class game_space:
             num_pairs = min(int(self.pool_size/50), int(len(fit_genomes)))
             for _ in range(num_pairs):
                 g1, g2 = random.sample(fit_genomes, 2)
-                offspring = (self.reproduce_genome(g1, g2, 3))
+                offspring = (self.reproduce_genome(g1, g2, 4))
                 repr_genomes.extend(offspring)
                 for item in offspring:
-                    repr_genomes.extend(self.mutate_genome(item, 3))
+                    repr_genomes.extend(self.mutate_genome(item, 4))
         msg += "New genomes from reproduction: " + str(len(repr_genomes)) + "\n"
         new_genomes.extend(fit_genomes)
         new_genomes.extend(best_policies)
@@ -703,8 +720,8 @@ print_visuals = False
 scaling = 5
 game_space_width = 25
 game_space_height = 15
-team_size = 5
-max_episode_len = 100 * scaling
+team_size = 3
+max_episode_len = 50 * scaling
 savedir = "footie_save"
 if not os.path.exists(savedir):
     os.makedirs(savedir)
