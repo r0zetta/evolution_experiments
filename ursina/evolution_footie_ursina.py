@@ -21,54 +21,67 @@ UP_LEFT = 8
 DIRECTIONS = [UP, UP_RIGHT, RIGHT, DOWN_RIGHT, DOWN, LEFT, UP_LEFT]
 
 class Net(nn.Module):
-    def __init__(self, state_size, action_size, hidden_size, fc1_weights, fc2_weights):
+    def __init__(self, state_size, a1_s, a2_s, hidden_size, fc1_w, fc2_w, fc3_w):
         super(Net, self).__init__()
         self.state_size = state_size
-        self.action_size = action_size
+        self.a1_s = a1_s
+        self.a2_s = a2_s
         self.hidden_size = hidden_size
         self.fc1 = nn.Linear(self.state_size, self.hidden_size, bias=False)
-        self.fc2 = nn.Linear(self.hidden_size, self.action_size, bias=False)
-        self.fc1.weight.data =  fc1_weights
-        self.fc2.weight.data =  fc2_weights
+        self.fc2 = nn.Linear(self.hidden_size, self.a1_s, bias=False)
+        self.fc3 = nn.Linear(self.hidden_size, self.a2_s, bias=False)
+        self.fc1.weight.data =  fc1_w
+        self.fc2.weight.data =  fc2_w
+        self.fc3.weight.data =  fc3_w
 
     def forward(self, x):
         x = F.relu(self.fc1(x))
-        x = F.softmax(F.relu(self.fc2(x)))
-        return x
+        x1 = F.softmax(F.relu(self.fc2(x)))
+        x2 = F.softmax(F.relu(self.fc3(x)))
+        return x1, x2
 
     def get_action(self, state):
         with torch.no_grad():
             state = state.float()
-            ret = self.forward(Variable(state))
-            action = torch.argmax(ret)
-            return action
+            r1, r2 = self.forward(Variable(state))
+            a1 = torch.argmax(r1)
+            a2 = torch.argmax(r2)
+            return a1, a2
 
 class GN_model:
-    def __init__(self, state_size, action_size, hidden_size, fc1_weights, fc2_weights):
-        self.policy = Net(state_size, action_size, hidden_size, fc1_weights, fc2_weights)
+    def __init__(self, state_size, a1_s, a2_s, hidden_size, fc1_w, fc2_w, fc3_w):
+        self.policy = Net(state_size, a1_s, a2_s, hidden_size, fc1_w, fc2_w, fc3_w)
 
     def get_action(self, state):
-        action = self.policy.get_action(state)
-        return action
-
+        a1, a2 = self.policy.get_action(state)
+        return a1, a2
 
 class Agent:
-    def __init__(self, x, y, state_size, action_size, hidden_size, genome, gi):
+    def __init__(self, x, y, mtype, params):
         self.xpos = x
         self.ypos = y
-        self.speed = 1
+        self.destx = x
+        self.desty = y
+        self.mtype = mtype
         self.fitness = 0
-        self.gi = gi
-        fc1_weights = torch.Tensor(np.reshape(genome[:state_size*hidden_size],
-                                              (hidden_size, state_size)))
-        fc2_weights = torch.Tensor(np.reshape(genome[state_size*hidden_size:],
-                                              (action_size, hidden_size)))
-        self.model = GN_model(state_size, action_size, hidden_size, fc1_weights, fc2_weights)
         self.state = None
         self.episode_steps = 0
         self.last_success = None
         self.direction = 0
         self.entity = None
+        if mtype == 'agent':
+            state_size = params['state_size']
+            a1_s = params['a1_s']
+            a2_s = params['a2_s']
+            hidden_size = params['hidden_size']
+            genome = params['genome']
+            self.gi = params['gi']
+            fc1_e = state_size*hidden_size
+            fc2_e = fc1_e + a1_s*hidden_size
+            fc1_w = torch.Tensor(np.reshape(genome[0:fc1_e], (hidden_size, state_size)))
+            fc2_w = torch.Tensor(np.reshape(genome[fc1_e:fc2_e], (a1_s, hidden_size)))
+            fc3_w = torch.Tensor(np.reshape(genome[fc2_e:], (a2_s, hidden_size)))
+            self.model = GN_model(state_size, a1_s, a2_s, hidden_size, fc1_w, fc2_w, fc3_w)
 
     def get_action(self):
         return self.model.get_action(self.state)
@@ -85,9 +98,10 @@ class Ball:
         self.entity = None
 
 class game_space:
-    def __init__(self, width, height, team_size=5,
+    def __init__(self, width, height, team_size=5, fake_agents=5,
                  max_episode_len=200, scaling=10, visuals=False, savedir="save"):
         self.steps = 0
+        self.fake_agents = fake_agents
         self.scaling = scaling
         self.visuals = visuals
         self.savedir = savedir
@@ -98,12 +112,16 @@ class game_space:
         self.top = -1 * self.bottom
         self.right = int((self.width*self.scaling)/2) - self.scaling
         self.left = -1 * self.right
-        print(self.top, self.bottom, self.left, self.right)
-        self.action_size = 9
-        self.hidden_size = 16
+        self.a1_s = 9
+        self.a2_s = 4
+        self.hidden_size = 32
         self.pool_size = 1000
+        self.min_fitness = 4
         self.state_size = self.get_state_size()
-        self.genome_size = (self.state_size*self.hidden_size) + (self.action_size*self.hidden_size)
+        fc1_s = self.state_size * self.hidden_size
+        fc2_s = self.a1_s * self.hidden_size
+        fc3_s = self.a2_s * self.hidden_size
+        self.genome_size = (fc1_s + fc2_s + fc3_s)
         self.agent_types = ["pigs", "sheep"]
         self.textures = {"pigs":"hog", "sheep":"yak"}
         self.num_agents = {}
@@ -132,12 +150,15 @@ class game_space:
         self.agents = {}
         for t in self.agent_types:
             self.agents[t] = []
-            for index in range(self.num_agents[t]):
+            for index in range(self.num_agents[t]+self.fake_agents):
                 self.agents[t].append(None)
         self.game_space = self.make_empty_game_space()
         for t in self.agent_types:
             for index, agent in enumerate(self.agents[t]):
-                self.create_new_agent(index, t)
+                if index <= self.num_agents[t]:
+                    self.create_new_agent('agent', index, t)
+                else:
+                    self.create_new_agent('fake', index, t)
         for t in self.agent_types:
             for index, agent in enumerate(self.agents[t]):
                 state = self.get_agent_state(index, t)
@@ -146,8 +167,49 @@ class game_space:
     def step(self):
         for t in self.agent_types:
             for index in range(len(self.agents[t])):
-                action = gs.agents[t][index].get_action()
-                self.move_agent(index, action, t)
+                mtype = gs.agents[t][index].mtype
+                cx = gs.agents[t][index].xpos
+                cy = gs.agents[t][index].ypos
+                dx = gs.agents[t][index].destx
+                dy = gs.agents[t][index].desty
+                if cx == dx and cy == dy:
+                    distance = 0
+                    direction = 0
+                    nx = cx
+                    ny = cy
+                    if mtype == 'agent':
+                        direction, distance = gs.agents[t][index].get_action()
+                        nx, ny = self.move_item(cx, cy, direction, distance)
+                    else:
+                        if random.random() > 0.8:
+                            # Move to ball
+                            nx = int(self.ball.x)
+                            my = int(self.ball.y)
+                        else:
+                            # Choose a new random location to move to
+                            direction = random.choice(DIRECTIONS)
+                            distance = random.choice(range(8)) * scaling
+                            nx, ny = self.move_item(cx, cy, direction, distance)
+                    gs.agents[t][index].destx = nx
+                    gs.agents[t][index].desty = ny
+                else:
+                    if cx < dx:
+                        cx += 1
+                    elif cx > dx:
+                        cx -= 1
+                    if cy < dy:
+                        cy += 1
+                    elif cy > dy:
+                        cy -= 1
+                    gs.agents[t][index].xpos = cx
+                    gs.agents[t][index].ypos = cy
+                    if self.agents[t][index].entity is not None:
+                        self.agents[t][index].entity.position = (cx, cy, (-1*self.scaling))
+                if mtype == 'agent':
+                    self.agents[t][index].episode_steps += 1
+                    if self.agents[t][index].episode_steps > self.max_episode_len:
+                        self.respawn_agent(index, t)
+
         prev_hit_team = None
         prev_hit_player = None
         if self.previous_hit is not None:
@@ -158,12 +220,14 @@ class game_space:
             for item in who_hit:
                 t, p = item
                 # Get fitness for interacting with the ball
-                self.agents[t][p].fitness += 1
+                if self.agents[t][p].mtype == 'agent':
+                    self.agents[t][p].fitness += 1
                 if t == prev_hit_team:
                     if p != prev_hit_player:
                         # If the ball is passed to a player on the same team
                         # add to fitness of play who made the pass
-                        self.agents[prev_hit_team][prev_hit_player].fitness += 1
+                        if self.agents[t][p].mtype == 'agent':
+                            self.agents[prev_hit_team][prev_hit_player].fitness += 1
                 self.previous_hit = [t, p]
         self.steps+=1
 
@@ -181,23 +245,26 @@ class game_space:
         space = np.zeros((self.height, self.width), dtype=int)
         return space
 
-    def create_new_agent(self, index, atype):
+    def create_new_agent(self, mtype, index, atype):
         item = self.get_random_empty_space(1)
-        xabs, yabs = item[0]
-        state_size = self.get_state_size()
-        action_size = self.action_size
-
-        selectable = []
-        for i, item in enumerate(self.genome_pool[atype]):
-            g, f = item
-            if f is None:
-                selectable.append(i)
-        gi = random.choice(selectable)
-        item = self.genome_pool[atype][gi]
-        genome, fitness = item
-
-        self.agents[atype][index] = Agent(xabs, yabs, state_size, action_size,
-                                          self.hidden_size, genome, gi)
+        yabs, xabs = item[0]
+        params = {}
+        if mtype == 'agent':
+            params['state_size'] = self.get_state_size()
+            params['hidden_size'] = self.hidden_size
+            params['a1_s'] = self.a1_s
+            params['a2_s'] = self.a2_s
+            selectable = []
+            for i, item in enumerate(self.genome_pool[atype]):
+                g, f = item
+                if f is None:
+                    selectable.append(i)
+            gi = random.choice(selectable)
+            params['gi'] = gi
+            item = self.genome_pool[atype][gi]
+            genome, fitness = item
+            params['genome'] = genome
+        self.agents[atype][index] = Agent(xabs, yabs, mtype, params)
 
     def respawn_agent(self, index, atype):
         old_entity = self.agents[atype][index].entity
@@ -206,7 +273,7 @@ class game_space:
         genome, fitness = item
         fitness = self.agents[atype][index].fitness
         self.genome_pool[atype][gi] = [genome, fitness]
-        self.create_new_agent(index, atype)
+        self.create_new_agent('agent', index, atype)
         state = self.get_agent_state(index, atype)
         self.agents[atype][index].state = state
         if old_entity is not None:
@@ -350,12 +417,12 @@ class game_space:
             modx = -1
         return modx, mody
 
-    def move_item(self, x, y, direction, speed):
+    def move_item(self, x, y, direction, distance):
         nx = x
         ny = y
         modx, mody = self.get_direction_mods(direction)
-        ny = ny + (mody*speed)
-        nx = nx + (modx*speed)
+        ny = ny + (mody*distance)
+        nx = nx + (modx*distance)
         if nx < self.left:
             nx = self.left
         if nx > self.right:
@@ -365,22 +432,6 @@ class game_space:
         if ny < self.top:
             ny = self.top
         return nx, ny
-
-    def move_agent(self, index, action, atype):
-        if action == 0: # do nothing
-            pass
-        else:
-            xabs = self.agents[atype][index].xpos
-            yabs = self.agents[atype][index].ypos
-            speed = self.agents[atype][index].speed
-            nx, ny = self.move_item(xabs, yabs, action, speed)
-            self.agents[atype][index].xpos = nx
-            self.agents[atype][index].ypos = ny
-            if self.agents[atype][index].entity is not None:
-                self.agents[atype][index].entity.position = (nx, ny, (-1*self.scaling))
-        self.agents[atype][index].episode_steps += 1
-        if self.agents[atype][index].episode_steps > self.max_episode_len:
-            self.respawn_agent(index, atype)
 
     def distance(self, xa, ya, xb, yb):
         dst = distance.euclidean([xa, ya], [xb, yb])
@@ -402,17 +453,20 @@ class game_space:
             item = positions[index]
             ey, ex = item
             xoff = ex-xpos
-            if xoff > 0:
-                xoff = 1
-            if xoff < 0:
-                xoff = -1
             yoff = ey-ypos
-            if yoff > 0:
-                yoff = 1
-            if yoff < 0:
-                yoff = -1
             directions.append([xoff,yoff])
         return directions
+
+    def normalize_directions(self, xoff, yoff):
+        if xoff > 0:
+            xoff = 1
+        if xoff < 0:
+            xoff = -1
+        if yoff > 0:
+            yoff = 1
+        if yoff < 0:
+            yoff = -1
+        return xoff, yoff
 
     def get_ball_direction(self, xpos, ypos):
         positions = [[self.ball.y, self.ball.x]]
@@ -433,7 +487,7 @@ class game_space:
         return state
 
     def get_state_size(self):
-        state_size = 13
+        state_size = 4
         return state_size
 
     def get_agent_state(self, index, atype):
@@ -443,13 +497,15 @@ class game_space:
         xabs = self.agents[atype][index].xpos
         yabs = self.agents[atype][index].ypos
         modx, mody = self.get_direction_mods(self.ball.direction)
-        state = [modx, mody, self.ball.speed]
+        modx = int(modx * self.ball.speed)
+        mody = int(mody * self.ball.speed)
+        state = [modx, mody]
         # Get direction of ball
         self.add_directions_to_state(state, self.get_ball_direction(xabs, yabs))
-        # Get directions of 4 closest team mates
-        self.add_directions_to_state(state, self.get_team_directions(xabs, yabs, atype, 2))
-        # Get directions of 4 closest opposing team players
-        self.add_directions_to_state(state, self.get_team_directions(xabs, yabs, ot, 2))
+        # Get directions of closest team mates
+        #self.add_directions_to_state(state, self.get_team_directions(xabs, yabs, atype, 2))
+        # Get directions of closest opposing team players
+        #self.add_directions_to_state(state, self.get_team_directions(xabs, yabs, ot, 2))
         state = np.array(state)
         state = torch.FloatTensor(state)
         state = state.unsqueeze(0)
@@ -554,7 +610,7 @@ class game_space:
         for index, item in enumerate(pool):
             genome, fitness = item
             if fitness is not None:
-                if fitness > 0:
+                if fitness >= self.min_fitness:
                     vi[index] = fitness
         count = 0
         for index, fitness in sorted(vi.items(), key=operator.itemgetter(1),reverse=True):
@@ -627,7 +683,7 @@ class game_space:
         for item in pool:
             genome, fitness = item
             if fitness is not None:
-                if fitness > 0:
+                if fitness >= self.min_fitness:
                     success += 1
             else:
                 unused += 1
@@ -716,11 +772,12 @@ def msg(gs):
 
 random.seed(1337)
 
-print_visuals = False
+print_visuals = True
 scaling = 5
 game_space_width = 25
 game_space_height = 15
-team_size = 3
+team_size = 5
+fake_agents = 5
 max_episode_len = 50 * scaling
 savedir = "footie_save"
 if not os.path.exists(savedir):
@@ -729,6 +786,7 @@ if not os.path.exists(savedir):
 gs = game_space(game_space_width,
                 game_space_height,
                 team_size=team_size,
+                fake_agents=fake_agents,
                 max_episode_len=max_episode_len,
                 scaling=scaling,
                 visuals=print_visuals,
@@ -769,8 +827,11 @@ if print_visuals == True:
         for index, agent in enumerate(gs.agents[t]):
             xabs = gs.agents[t][index].xpos
             yabs = gs.agents[t][index].ypos
+            mtype = gs.agents[t][index].mtype
             s = gs.scaling * 1
             texture = gs.textures[t]
+            if mtype == "agent":
+                texture = gs.textures[t] + "_ai"
             gs.agents[t][index].entity = Entity(model='cube',
                                                 color=color.white,
                                                 scale=(s,s,0),

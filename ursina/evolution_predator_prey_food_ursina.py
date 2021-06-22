@@ -70,11 +70,13 @@ class Food:
 
 class game_space:
     def __init__(self, width, height, num_walls=0, num_predators=1, num_prey=1,
-                 num_food=10, max_episode_len=200, scaling=10, visuals=False, savedir="save"):
+                 num_food=10, max_episode_len=200, scaling=10, visuals=False,
+                 only_best_policies=False, savedir="save"):
         self.steps = 0
         self.scaling = scaling
         self.visuals = visuals
         self.savedir = savedir
+        self.only_best_policies = only_best_policies
         self.max_episode_len = max_episode_len
         self.width = width+2
         self.height = height+2
@@ -199,7 +201,7 @@ class game_space:
                                       color=color.white,
                                       scale=(s,s,0),
                                       position = (xabs, yabs, (-1*self.scaling)),
-                                      texture="veg")
+                                      texture="shrub")
                 self.food.append(f)
 
     def add_walls(self, num):
@@ -232,12 +234,22 @@ class game_space:
         action_size = self.action_size
 
         selectable = []
-        for i, item in enumerate(self.genome_pool[atype]):
-            g, f = item
-            if f is None:
-                selectable.append(i)
+        if self.only_best_policies == True:
+            # Take from top n% of best policies
+            top = int(len(self.best_policies[atype]) * 0.05)
+            selectable = range(top)
+        else:
+            for i, item in enumerate(self.genome_pool[atype]):
+                g, f = item
+                if f is None:
+                    selectable.append(i)
+
         gi = random.choice(selectable)
-        item = self.genome_pool[atype][gi]
+        item = None
+        if self.only_best_policies == True:
+            item = self.best_policies[atype][gi]
+        else:
+            item = self.genome_pool[atype][gi]
         genome, fitness = item
 
         self.agents[atype][index] = Agent(xabs, yabs, state_size, action_size,
@@ -266,11 +278,12 @@ class game_space:
 
     def respawn_agent(self, index, atype):
         old_entity = self.agents[atype][index].entity
-        gi = self.agents[atype][index].gi
-        item = self.genome_pool[atype][gi]
-        genome, fitness = item
-        fitness = self.agents[atype][index].fitness
-        self.genome_pool[atype][gi] = [genome, fitness]
+        if self.only_best_policies == False:
+            gi = self.agents[atype][index].gi
+            item = self.genome_pool[atype][gi]
+            genome, fitness = item
+            fitness = self.agents[atype][index].fitness
+            self.genome_pool[atype][gi] = [genome, fitness]
         self.create_new_agent(index, atype)
         state = self.get_agent_state(index, atype)
         self.agents[atype][index].state = state
@@ -784,14 +797,15 @@ def msg(gs):
 
 random.seed(1337)
 
+only_best_policies = False
 print_visuals = True
 scaling = 3
-game_space_width = 20
+game_space_width = 30
 game_space_height = 20
-num_walls = 0
-num_predators = 6
-num_prey = 20
-num_food = 20
+num_walls = 50
+num_predators = 8
+num_prey = 16
+num_food = 30
 max_episode_len = 50 * scaling
 savedir = "predator_prey_food_save"
 if not os.path.exists(savedir):
@@ -806,6 +820,7 @@ gs = game_space(game_space_width,
                 max_episode_len=max_episode_len,
                 scaling=scaling,
                 visuals=print_visuals,
+                only_best_policies=only_best_policies,
                 savedir=savedir)
 
 prev_stats = {}
@@ -859,7 +874,7 @@ if print_visuals == True:
                                        color=color.white,
                                        scale=(s,s,0),
                                        position = (x, y, (-1*gs.scaling)),
-                                       texture="veg")
+                                       texture="shrub")
 
     camera.position -= (0, 0, 50*gs.scaling)
     #camera.position = (0, (-45*gs.scaling), (-40*gs.scaling))
@@ -875,15 +890,16 @@ else:
             print(msg(gs))
             print(prev_train_msg)
             print()
-            for t in gs.agent_types:
-                s0, u0 = gs.get_genome_statistics(t)
-                if u0 < 70:
-                    prev_train_msg = ""
-                    for tt in gs.agent_types:
-                        f, m = gs.get_genome_fitness(tt)
-                        prev_stats[tt].append(f)
-                        with open(savedir + "/evolution_stats_"+tt+".json", "w") as f:
-                            f.write(json.dumps(prev_stats[tt]))
-                        prev_train_msg += gs.create_new_genome_pool(tt)
-                        gs.save_genomes(tt)
-                        gs.save_best_policies(tt)
+            if gs.only_best_policies == False:
+                for t in gs.agent_types:
+                    s0, u0 = gs.get_genome_statistics(t)
+                    if u0 < 70:
+                        prev_train_msg = ""
+                        for tt in gs.agent_types:
+                            f, m = gs.get_genome_fitness(tt)
+                            prev_stats[tt].append(f)
+                            with open(savedir + "/evolution_stats_"+tt+".json", "w") as f:
+                                f.write(json.dumps(prev_stats[tt]))
+                            prev_train_msg += gs.create_new_genome_pool(tt)
+                            gs.save_genomes(tt)
+                            gs.save_best_policies(tt)

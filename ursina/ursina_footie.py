@@ -21,7 +21,7 @@ class Ball:
         self.direction = 0
         self.speed = 0
         self.friction = 0.95
-        self.hit_speed = 3
+        self.hit_speed = 2
         self.hit_cooldown = 0
         s = scaling
         self.ball = Entity(model='sphere',
@@ -195,8 +195,6 @@ def move_ball():
         if len(hit_directions) > 0:
             b.direction = random.choice(hit_directions)
             if len(who_hit) > 0:
-                b.speed = b.hit_speed
-            elif b.speed < 0.0001:
                 b.speed = b.hit_speed
             b.hit_cooldown = 5
     # Move ball
