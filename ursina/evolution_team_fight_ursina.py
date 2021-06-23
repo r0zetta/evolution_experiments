@@ -122,8 +122,9 @@ class game_space:
                 self.agents[t][index].state = state
 
     def step(self):
-        for t in self.agent_types:
-            for index in range(len(self.agents[t])):
+        # This assumes teams are of same size!
+        for index in range(len(self.agents[self.agent_types[0]])):
+            for t in self.agent_types:
                 action = gs.agents[t][index].get_action()
                 self.move_agent(index, action, t)
         self.steps+=1
@@ -302,11 +303,19 @@ class game_space:
                 self.agents[enemy][enemy_index].hp = enemy_hp
                 if enemy_hp < 1:
                     self.agents[atype][index].fitness += 50
+                    # Killing an enemy grants hp to the agent that did it
+                    ahp = self.agents[atype][index].hp
+                    ahp = min(10, ahp+5)
+                    self.agents[atype][index].hp = ahp
                     enemy_fitness = self.agents[enemy][enemy_index].fitness
                     self.respawn_agent(enemy_index, enemy)
                     fi = self.get_adjacent_friend_indices(index, atype)
+                    # Adjacent friendly agents get fitness and a small heal
                     if len(fi) > 0:
                         for i in fi:
+                            bhp = self.agents[atype][i].hp
+                            bhp = min(10, ahp+2)
+                            self.agents[atype][i].hp = bhp
                             self.agents[atype][i].fitness += 5
                             self.update_agent_success(atype, i)
         self.agents[atype][index].fitness += 1
@@ -431,7 +440,7 @@ class game_space:
         return len(indices)
 
     def get_state_size(self):
-        state_size = 35
+        state_size = 36
         return state_size
 
     def make_small_state(self, index, atype):
@@ -445,6 +454,7 @@ class game_space:
         tiles = self.add_directions_to_state(tiles, directions)
         adj_count = self.get_adjacent_friend_count(index, atype)
         tiles.append(adj_count)
+        tiles.append(self.agents[atype][index].hp)
 
         space = self.add_items_to_game_space()
         os = [-2, -1, 0, 1, 2]
@@ -588,15 +598,16 @@ class game_space:
                 new_genomes.append(genome)
         threshold = 0.20
         fit_genomes = self.get_best_genomes(atype, threshold)
-        msg += atype + ": Previous pool had " + str(len(fit_genomes)) + " fit genomes.\n"
+        msg += atype + "\n"
+        msg += " Previous pool had " + str(len(fit_genomes)) + " fit genomes."
         mutated_fit = []
         for item in fit_genomes:
             mutated_fit.extend(self.mutate_genome(item, 3))
-        msg += "New genomes from mutations: " + str(len(mutated_fit)) + "\n"
+        msg += " New genomes from mutations: " + str(len(mutated_fit)) + "\n"
         best_policies = []
         if len(self.best_policies[atype]) > 20:
             best_policies = self.get_best_policies(atype, 20)
-        msg += "Adding " + str(len(best_policies)) + " previous good policies to the pool."
+        msg += " Adding " + str(len(best_policies)) + " previous good policies to the pool. "
         bp_mutations = []
         for item in best_policies:
             bp_mutations.extend(self.mutate_genome(item, 3))
@@ -725,10 +736,10 @@ def msg(gs):
         s, u = gs.get_genome_statistics(t)
         f, m = gs.get_genome_fitness(t)
         pf, pn = gs.get_best_policy_stats(t)
-        msg += "\x1b[1;"+colors[t]+"m"+t+"\x1b[0m"
-        msg += ": Success: " + str(s) + " Unused: " + str(u) 
+        msg += "\x1b[1;"+colors[t]+"m"+t+"\x1b[0m" + "\n"
+        msg += "\tSuccess: " + str(s) + " Unused: " + str(u)
         msg += " Fitness: " + "%.2f"%f + " Max: " + str(m) + "\n"
-        msg += "Best policy fitness: " + "%.2f"%pf + " Num: " + str(pn) + "\n"
+        msg += "\tBest policy fitness: " + "%.2f"%pf + " Num: " + str(pn) + "\n"
         msg += "[ "
         p = prev_stats[t]
         for s in p[-10:]:
@@ -743,7 +754,7 @@ print_visuals = False
 scaling = 3
 game_space_width = 20
 game_space_height = 20
-num_walls = 50
+num_walls = 0
 num_agents = 15
 max_episode_len = 50 * scaling
 savedir = "team_fight_save"
