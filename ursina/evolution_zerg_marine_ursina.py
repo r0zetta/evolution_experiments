@@ -59,6 +59,7 @@ class Agent:
         self.direction = 0
         self.hp = 10
         self.mspeed = 1
+        self.damage = 1
         self.shooting = False
         self.was_hit = False
         self.entity = None
@@ -90,7 +91,7 @@ class game_space:
         self.mspeeds = {"zerg":2, "marine":1}
         self.shoot_distance = 2
         self.num_agents = {}
-        self.num_agents["zerg"] = num_agents
+        self.num_agents["zerg"] = num_agents * 2
         self.num_agents["marine"] = num_agents
         self.food_id = 10000
         self.genome_pool = {}
@@ -127,9 +128,8 @@ class game_space:
                 self.agents[t][index].state = state
 
     def step(self):
-        # This assumes teams are of same size!
-        for index in range(len(self.agents[self.agent_types[0]])):
-            for t in self.agent_types:
+        for t in self.agent_types:
+            for index in range(len(self.agents[t])):
                 action = gs.agents[t][index].get_action()
                 self.move_agent(index, action, t)
         self.steps+=1
@@ -189,7 +189,7 @@ class game_space:
                     break
 
     def create_new_agent(self, index, atype):
-        item = self.get_random_empty_space(1)
+        item = self.get_spawn_point(atype, 1)
         ygrid, xgrid = item[0]
         xabs, yabs = self.grid_coords_to_abs(xgrid, ygrid)
         state_size = self.get_state_size()
@@ -217,9 +217,12 @@ class game_space:
         self.agents[atype][index] = Agent(xabs, yabs, state_size, action_size,
                                           self.hidden_size, genome, gi)
         mspeed = max(1, self.scaling*0.5)
+        damage = 0.8
         if atype == "zerg":
             mspeed = self.scaling
+            damage = 1.2
         self.agents[atype][index].mspeed = mspeed
+        self.agents[atype][index].damage = damage
 
     def add_items_to_game_space(self):
         space = np.array(self.game_space)
@@ -237,6 +240,20 @@ class game_space:
         space = self.add_items_to_game_space()
         empties = list(np.argwhere(space == 0))
         return random.sample(empties, num)
+
+    def get_spawn_point(self, atype, num=1):
+        space = self.add_items_to_game_space()
+        empties = list(np.argwhere(space == 0))
+        sp = []
+        for item in empties:
+            y, x = item
+            if atype == "zerg":
+                if x < int((self.width)*0.5) and y < int((self.height*0.5)):
+                    sp.append(item)
+            else:
+                if x > int((self.width)*0.5) and y > int((self.height*0.5)):
+                    sp.append(item)
+        return random.sample(sp, num)
 
     def respawn_agent(self, index, atype):
         old_entity = self.agents[atype][index].entity
@@ -415,6 +432,7 @@ class game_space:
     def move_agent(self, index, action, atype):
         self.agents[atype][index].was_hit = False
         self.agents[atype][index].shooting = False
+        damage = self.agents[atype][index].damage
         done = False
         if action == 0: # do nothing
             pass
@@ -432,9 +450,9 @@ class game_space:
                     enemy_index = self.get_agent_at_position(newx, newy, enemy)
                     self.agents[enemy][enemy_index].was_hit = True
                     enemy_hp = self.agents[enemy][enemy_index].hp
-                    enemy_hp -=1
+                    enemy_hp -= damage
                     self.agents[enemy][enemy_index].hp = enemy_hp
-                    if enemy_hp < 1:
+                    if enemy_hp < 0:
                         self.agents[atype][index].fitness += 50
                         self.respawn_agent(enemy_index, enemy)
                         fi = self.get_adjacent_friend_indices(index, atype)
@@ -453,9 +471,9 @@ class game_space:
                     self.update_agent_success(atype, index)
                     self.agents[enemy][enemy_index].was_hit = True
                     enemy_hp = self.agents[enemy][enemy_index].hp
-                    enemy_hp -=1
+                    enemy_hp -= damage
                     self.agents[enemy][enemy_index].hp = enemy_hp
-                    if enemy_hp < 1:
+                    if enemy_hp < 0:
                         self.agents[atype][index].fitness += 50
                         self.respawn_agent(enemy_index, enemy)
                         fi = self.get_adjacent_friend_indices(index, atype)
@@ -811,10 +829,10 @@ console_visuals = False
 
 only_best_policies = False
 scaling = 2
-game_space_width = 20
+game_space_width = 30
 game_space_height = 20
-num_walls = 30
-num_agents = 20
+num_walls = 0
+num_agents = 10
 max_episode_len = 50 * scaling
 savedir = "zerg_marine_save"
 if not os.path.exists(savedir):
